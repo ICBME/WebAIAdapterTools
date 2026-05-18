@@ -6,6 +6,7 @@ import { sanitizeUrl } from './url.js';
 import { assertCompatibleDependencyVersions } from './versionGuard.js';
 import { diffSnapshots } from './actionDiff.js';
 import { DEFAULT_WINDOW_SIZE } from './size.js';
+import { installActionRecorder } from './actionRecorder.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -56,6 +57,7 @@ export async function collectPageProfile(options) {
     const page = context.pages()[0] || await context.newPage();
     await page.setViewportSize({ width: fixedWindow[0], height: fixedWindow[1] }).catch(() => {});
     const networkRecorder = attachNetworkRecorder(page);
+    const actionRecorder = recordAction ? await installActionRecorder(page) : null;
     await page.goto(url, { waitUntil: 'load', timeout }).catch(error => {
       throw new Error(`Navigation failed: ${error.message}`);
     });
@@ -85,6 +87,7 @@ export async function collectPageProfile(options) {
       const beforeAction = profile;
       const initialNetwork = networkRecorder.getSummary();
       networkRecorder.reset();
+      await actionRecorder.reset();
       await waitForUser(page, 'record-action');
       await page.waitForLoadState('networkidle', { timeout: Math.min(timeout, 30000) }).catch(() => {});
       const afterAction = await collectPageSnapshot(page, {
@@ -105,13 +108,18 @@ export async function collectPageProfile(options) {
       });
       profile.actionCapture = {
         mode: 'manual',
-        instructions: 'User manually performed the target action. Tool only captured DOM/network changes.',
+        instructions: 'User manually performed the target action. Tool captured safe DOM event metadata, before/after snapshots, and network metadata.',
+        recorderInstalled: actionRecorder.isInstalled(),
+        recorderInstallError: actionRecorder.getInstallError(),
+        events: await actionRecorder.getEvents(),
         before: {
           page: beforeAction.page,
+          elements: beforeAction.elements,
           recommendations: beforeAction.recommendations
         },
         after: {
           page: afterAction.page,
+          elements: afterAction.elements,
           recommendations: afterAction.recommendations
         },
         diff: diffSnapshots(beforeAction, afterAction),

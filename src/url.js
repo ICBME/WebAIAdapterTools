@@ -3,12 +3,13 @@ export function sanitizeUrl(rawUrl) {
   try {
     const url = new URL(value);
     const queryKeys = Array.from(new Set(Array.from(url.searchParams.keys()))).sort();
+    const origin = url.protocol === 'file:' ? 'file://' : url.origin;
     return {
-      origin: url.origin,
+      origin,
       path: url.pathname || '/',
       queryKeys,
       hasHash: Boolean(url.hash),
-      display: `${url.origin}${url.pathname || '/'}${queryKeys.length ? `?${queryKeys.map(k => `${k}=...`).join('&')}` : ''}${url.hash ? '#...' : ''}`
+      display: `${origin}${url.pathname || '/'}${queryKeys.length ? `?${queryKeys.map(k => `${k}=...`).join('&')}` : ''}${url.hash ? '#...' : ''}`
     };
   } catch {
     return {

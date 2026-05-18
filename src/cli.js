@@ -5,8 +5,8 @@ import process from 'node:process';
 import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { collectPageProfile, defaultUserDataDir } from './collector.js';
-import { renderHtmlReport } from './htmlReport.js';
 import { DEFAULT_WINDOW_SIZE, parseWindowSize } from './size.js';
+import { writeCaptureArtifacts } from './artifacts.js';
 
 function printHelp() {
   console.log(`Usage:
@@ -112,12 +112,16 @@ async function main() {
   });
 
   await fs.mkdir(outDir, { recursive: true });
-  await fs.writeFile(path.join(outDir, 'profile.json'), JSON.stringify(profile, null, 2), 'utf8');
-  await fs.writeFile(path.join(outDir, 'profile.html'), renderHtmlReport(profile), 'utf8');
+  const index = await writeCaptureArtifacts(profile, outDir);
 
   console.log(`Profile written:
-  ${path.join(outDir, 'profile.json')}
-  ${path.join(outDir, 'profile.html')}`);
+  ${path.join(outDir, 'profile.json')} (index)
+  ${path.join(outDir, index.files.capture)}
+  ${path.join(outDir, index.files.page)}
+  ${path.join(outDir, index.files.elements)}
+  ${path.join(outDir, index.files.recommendations)}
+  ${path.join(outDir, index.files.network)}
+  ${path.join(outDir, index.files.html)}`);
 }
 
 main().catch(error => {

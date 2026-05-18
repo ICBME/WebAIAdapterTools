@@ -11,3 +11,10 @@ test('sanitizeUrl keeps query keys but removes values', () => {
   assert.equal(result.display, 'https://example.com/app?prompt=...&token=...#...');
   assert.doesNotMatch(JSON.stringify(result), /secret|hello|again/);
 });
+
+test('sanitizeUrl formats file URLs without null origin', () => {
+  const result = sanitizeUrl('file:///tmp/example.html');
+  assert.equal(result.origin, 'file://');
+  assert.equal(result.path, '/tmp/example.html');
+  assert.equal(result.display, 'file:///tmp/example.html');
+});

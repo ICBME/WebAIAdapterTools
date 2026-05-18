@@ -81,10 +81,29 @@ function renderNetwork(network) {
 
 function renderActionCapture(actionCapture) {
   if (!actionCapture) return '';
+  const events = actionCapture.events || [];
   return `
     <section>
       <h2>Manual Action Capture</h2>
-      <p class="muted">The user manually performed the target action. This tool only recorded before/after snapshots and network metadata.</p>
+      <p class="muted">The user manually performed the target action. This tool recorded safe DOM event metadata, before/after snapshots, and network metadata.</p>
+      <h3>Action Events</h3>
+      ${events.length ? `
+        <table>
+          <thead><tr><th>#</th><th>Type</th><th>Target</th><th>Input / Files / Key</th><th>URL</th></tr></thead>
+          <tbody>
+            ${events.slice(0, 120).map(event => `
+              <tr>
+                <td>${escapeHtml(event.seq)}</td>
+                <td>${escapeHtml(event.type)}</td>
+                <td>${escapeHtml(event.target?.ariaLabel || event.target?.placeholder || event.target?.text || event.target?.cssPath || event.target?.tag || '')}</td>
+                <td><code>${escapeHtml(JSON.stringify(event.input || event.files || event.key || event.submitter || {}, null, 0))}</code></td>
+                <td>${escapeHtml(event.frameUrl?.display || '')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      ` : '<p class="muted">No DOM action events were recorded.</p>'}
+      <h3>Before / After Diff</h3>
       <pre>${escapeHtml(JSON.stringify(actionCapture.diff || {}, null, 2))}</pre>
       ${renderNetwork(actionCapture.network)}
     </section>
@@ -92,7 +111,9 @@ function renderActionCapture(actionCapture) {
 }
 
 export function renderHtmlReport(profile) {
-  const allElements = profile.elements?.all || [];
+  const activeElements = profile.actionCapture?.after?.elements || profile.elements;
+  const activeRecommendations = profile.actionCapture?.after?.recommendations || profile.recommendations;
+  const allElements = activeElements?.all || [];
   const initialUrl = profile.capture?.initialUrl?.display || profile.capture?.initialUrl || '';
   const finalUrl = profile.capture?.finalUrl?.display || profile.capture?.finalUrl || '';
   return `<!doctype html>
@@ -139,10 +160,10 @@ export function renderHtmlReport(profile) {
       <label>Filter category <select id="categoryFilter"><option value="">All</option><option>input</option><option>button</option><option>fileInput</option><option>link</option><option>form</option><option>output</option></select></label>
       <label>Minimum score <input id="scoreFilter" type="number" min="0" max="100" value="0"></label>
     </div>
-    ${renderRecommendationGroup('Recommended Inputs', profile.recommendations?.inputs)}
-    ${renderRecommendationGroup('Recommended Upload Entrances', profile.recommendations?.uploads)}
-    ${renderRecommendationGroup('Recommended Submit Buttons', profile.recommendations?.submits)}
-    ${renderRecommendationGroup('Recommended Output Containers', profile.recommendations?.outputs)}
+    ${renderRecommendationGroup('Recommended Inputs', activeRecommendations?.inputs)}
+    ${renderRecommendationGroup('Recommended Upload Entrances', activeRecommendations?.uploads)}
+    ${renderRecommendationGroup('Recommended Submit Buttons', activeRecommendations?.submits)}
+    ${renderRecommendationGroup('Recommended Output Containers', activeRecommendations?.outputs)}
     ${renderActionCapture(profile.actionCapture)}
     ${renderElementTable(allElements)}
     ${renderNetwork(profile.network)}

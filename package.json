@@ -9,6 +9,7 @@
   },
   "scripts": {
     "collect": "node ./src/cli.js",
+    "analyze": "node ./src/analyzeCli.js",
     "test": "node --test"
   },
   "dependencies": {
