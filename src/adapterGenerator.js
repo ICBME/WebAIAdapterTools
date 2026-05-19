@@ -1,0 +1,213 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { buildInterfacePlan, loadCaptureBundle } from './interfaceAnalyzer.js';
+
+const DEFAULT_MODEL_ID = 'generated-browser-text';
+const LOCATOR_PREFIXES = [
+  'page.getByRole(',
+  'page.locator(',
+  'page.getByText(',
+  'page.getByLabel(',
+  'page.getByPlaceholder(',
+  'page.getByAltText(',
+  'page.getByTitle(',
+  'page.getByTestId('
+];
+
+function compact(value, max = 120) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+function jsString(value) {
+  return JSON.stringify(String(value || ''));
+}
+
+function sanitizeIdentifier(value, fallback = 'generated_adapter') {
+  const cleaned = String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return /^[a-z][a-z0-9_]*$/.test(cleaned) ? cleaned : fallback;
+}
+
+function assertSafeLocatorExpression(expression, label) {
+  const value = String(expression || '').trim();
+  if (!value) throw new Error(`${label} 缺少 locator 表达式`);
+  if (!LOCATOR_PREFIXES.some(prefix => value.startsWith(prefix))) {
+    throw new Error(`${label} locator 不在允许的 Playwright locator 白名单内: ${value}`);
+  }
+  if (/[\n\r;`]|\b(?:eval|Function|import|require|process|globalThis|window|document)\b/.test(value)) {
+    throw new Error(`${label} locator 包含不允许的代码片段: ${value}`);
+  }
+  return value;
+}
+
+function urlWithoutRedactedQuery(url) {
+  if (!url?.origin) return '';
+  return `${url.origin}${url.path || '/'}`;
+}
+
+function inferTargetUrl(plan) {
+  const gotoStep = plan.operation?.steps?.find(step => step.type === 'goto' && step.url?.origin);
+  return urlWithoutRedactedQuery(gotoStep?.url) ||
+    urlWithoutRedactedQuery(plan.source?.initialUrl) ||
+    urlWithoutRedactedQuery(plan.source?.finalUrl);
+}
+
+function inferTemplate(plan, requested) {
+  if (requested) return requested;
+  if (plan.operation?.name === 'search') return 'search_text';
+  return 'search_text';
+}
+
+function validatePlan(plan, options = {}) {
+  if (plan?.schemaVersion !== 'web-adapter-tools.interface-plan.v1') {
+    throw new Error('interface.json schemaVersion 不正确');
+  }
+  if (plan.operation?.transport !== 'browser') {
+    throw new Error('第一版生成器仅支持 browser transport');
+  }
+  const template = inferTemplate(plan, options.template);
+  if (template !== 'search_text') {
+    throw new Error(`第一版生成器仅支持 search_text 模板，收到: ${template}`);
+  }
+  const input = plan.operation?.inputs?.find(item => item.type === 'string');
+  const output = plan.operation?.outputs?.find(item => item.type === 'text');
+  if (!input) throw new Error('interface plan 缺少文本输入');
+  if (!output) throw new Error('interface plan 缺少文本输出');
+  if (!plan.operation?.submit) throw new Error('interface plan 缺少提交动作');
+  return { template, input, output, submit: plan.operation.submit };
+}
+
+function locatorFunctionCode(expression) {
+  return `page => ${expression}`;
+}
+
+function submitBindingCode(submit, inputLocatorExpression) {
+  if (submit.action === 'press') {
+    const submitLocator = assertSafeLocatorExpression(submit.locator?.value || inputLocatorExpression, 'submit');
+    const target = submitLocator === inputLocatorExpression ? 'input' : 'submit';
+    const locatorLine = target === 'input' ? '' : `,\n            locator: ${locatorFunctionCode(submitLocator)}`;
+    return `{
+            action: 'press',
+            target: ${jsString(target)},
+            key: ${jsString(submit.key || 'Enter')}${locatorLine}
+        }`;
+  }
+
+  if (submit.action === 'click') {
+    const submitLocator = assertSafeLocatorExpression(submit.locator?.value, 'submit');
+    const target = submitLocator === inputLocatorExpression ? 'input' : 'submit';
+    const locatorLine = target === 'input' ? '' : `,\n            locator: ${locatorFunctionCode(submitLocator)}`;
+    return `{
+            action: 'click',
+            target: ${jsString(target)}${locatorLine}
+        }`;
+  }
+
+  throw new Error(`不支持的提交动作: ${submit.action}`);
+}
+
+export function buildAdapterSource(plan, options = {}) {
+  const { template, input, output, submit } = validatePlan(plan, options);
+  const adapterId = sanitizeIdentifier(options.id || `${plan.operation.name || 'generated'}_text`);
+  const modelId = compact(options.model || DEFAULT_MODEL_ID, 80);
+  const displayName = compact(options.displayName || adapterId.replace(/_/g, ' '), 120);
+  const description = compact(options.description || `Generated from WebAdapterTools capture for ${plan.operation.name || 'browser action'}.`, 200);
+  const targetUrl = options.targetUrl || inferTargetUrl(plan);
+
+  if (!targetUrl) throw new Error('无法推断 targetUrl');
+
+  const inputLocator = assertSafeLocatorExpression(input.locator?.value, 'input');
+  const outputLocator = assertSafeLocatorExpression(output.locator?.value, 'output');
+  const submitCode = submitBindingCode(submit, inputLocator);
+
+  return `/**
+ * @fileoverview Generated WebAI2API adapter: ${adapterId}
+ * @generated by WebAdapterTools
+ */
+
+import { runTemplate } from '../adapter_runtime/templateRunner.js';
+
+const spec = {
+    id: ${jsString(adapterId)},
+    template: ${jsString(template)},
+    targetUrl: ${jsString(targetUrl)},
+    models: [
+        { id: ${jsString(modelId)}, imagePolicy: 'forbidden', type: 'text' }
+    ],
+    bindings: {
+        input: {
+            name: ${jsString(input.name || 'prompt')},
+            valueFrom: 'prompt',
+            locator: ${locatorFunctionCode(inputLocator)}
+        },
+        submit: ${submitCode},
+        output: {
+            extract: ${jsString(output.extract || 'innerText')},
+            locator: ${locatorFunctionCode(outputLocator)}
+        }
+    }
+};
+
+async function generate(context, prompt, paths, modelId, meta = {}) {
+    return runTemplate(context, spec, { prompt, paths, modelId, meta });
+}
+
+export const manifest = {
+    id: spec.id,
+    displayName: ${jsString(displayName)},
+    description: ${jsString(description)},
+    getTargetUrl() {
+        return spec.targetUrl;
+    },
+    models: spec.models,
+    navigationHandlers: [],
+    generate
+};
+`;
+}
+
+export function buildWorkerConfigSnippet(adapterId, options = {}) {
+  const workerName = sanitizeIdentifier(options.workerName || adapterId, adapterId);
+  return `backend:
+  pool:
+    instances:
+      - name: "browser_default"
+        workers:
+          - name: "${workerName}"
+            type: ${adapterId}
+`;
+}
+
+export async function loadInterfacePlan(captureDir) {
+  const interfacePath = path.join(captureDir, 'interface.json');
+  try {
+    return JSON.parse(await fs.readFile(interfacePath, 'utf8'));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    const bundle = await loadCaptureBundle(captureDir);
+    return buildInterfacePlan(bundle);
+  }
+}
+
+export async function writeAdapterFromCapture(captureDir, options = {}) {
+  const plan = await loadInterfacePlan(captureDir);
+  const source = buildAdapterSource(plan, options);
+  const adapterId = sanitizeIdentifier(options.id || `${plan.operation?.name || 'generated'}_text`);
+  const targetRoot = path.resolve(options.target || '../WebAI2API');
+  const adapterDir = path.join(targetRoot, 'src', 'backend', 'adapter');
+  const adapterPath = path.join(adapterDir, `${adapterId}.js`);
+
+  await fs.mkdir(adapterDir, { recursive: true });
+  await fs.writeFile(adapterPath, source, 'utf8');
+
+  return {
+    adapterId,
+    adapterPath,
+    source,
+    configSnippet: buildWorkerConfigSnippet(adapterId, options),
+    modelId: compact(options.model || DEFAULT_MODEL_ID, 80),
+    targetRoot
+  };
+}

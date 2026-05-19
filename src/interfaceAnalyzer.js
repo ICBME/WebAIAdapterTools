@@ -168,21 +168,25 @@ function inferSubmit(bundle, inputs) {
       evidence: { eventSeq: submitEvent.seq, target: submitEvent.submitter }
     };
   }
+  if (enterEvent) {
+    return {
+      action: 'press',
+      key: 'Enter',
+      source: submitEvent ? 'recorded-submit-key' : 'recorded-key',
+      locator: locatorFromTarget(enterEvent.target),
+      evidence: {
+        eventSeq: enterEvent.seq,
+        submitSeq: submitEvent?.seq || null,
+        target: enterEvent.target
+      }
+    };
+  }
   if (clickEvent) {
     return {
       action: 'click',
       source: 'recorded-click',
       locator: locatorFromTarget(clickEvent.target),
       evidence: { eventSeq: clickEvent.seq, target: clickEvent.target }
-    };
-  }
-  if (enterEvent) {
-    return {
-      action: 'press',
-      key: 'Enter',
-      source: 'recorded-key',
-      locator: locatorFromTarget(enterEvent.target),
-      evidence: { eventSeq: enterEvent.seq, target: enterEvent.target }
     };
   }
 
@@ -271,6 +275,17 @@ function uniqueOutputNames(outputs) {
     ...output,
     name: index === 0 ? output.name : `${output.name}_${index + 1}`
   }));
+}
+
+function rankOutputs(outputs) {
+  return outputs
+    .map((output, index) => ({ output, index }))
+    .sort((a, b) => {
+      const confidenceDelta = (b.output.locator?.confidence || 0) - (a.output.locator?.confidence || 0);
+      if (confidenceDelta) return confidenceDelta;
+      return a.index - b.index;
+    })
+    .map(item => item.output);
 }
 
 function endpointKey(request) {
@@ -419,7 +434,7 @@ export function buildInterfacePlan(bundle) {
   const inputs = inferInputs(bundle);
   const uploads = inferUploads(bundle);
   const submit = inferSubmit(bundle, inputs);
-  const outputs = uniqueOutputNames(inferOutputs(bundle));
+  const outputs = uniqueOutputNames(rankOutputs(inferOutputs(bundle)));
   const networkCandidates = inferNetworkCandidates(bundle);
   const operationName = inferOperationName(bundle, inputs);
   const steps = buildSteps(bundle, inputs, uploads, submit, outputs);

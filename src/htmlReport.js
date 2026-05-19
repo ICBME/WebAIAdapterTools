@@ -82,10 +82,29 @@ function renderNetwork(network) {
 function renderActionCapture(actionCapture) {
   if (!actionCapture) return '';
   const events = actionCapture.events || [];
+  const segments = actionCapture.segments || [];
   return `
     <section>
       <h2>Manual Action Capture</h2>
       <p class="muted">The user manually performed the target action. This tool recorded safe DOM event metadata, before/after snapshots, and network metadata.</p>
+      ${segments.length ? `
+        <h3>Action Segments</h3>
+        <table>
+          <thead><tr><th>ID</th><th>Label</th><th>Events</th><th>Network</th><th>Diff counts</th><th>URL</th></tr></thead>
+          <tbody>
+            ${segments.map(segment => `
+              <tr>
+                <td>${escapeHtml(segment.id)}</td>
+                <td>${escapeHtml(segment.label || '')}</td>
+                <td>${escapeHtml(segment.events?.length || 0)}</td>
+                <td>${escapeHtml(segment.network?.requests?.length || 0)}</td>
+                <td><code>${escapeHtml(JSON.stringify(segment.diff?.counts || {}, null, 0))}</code></td>
+                <td>${escapeHtml(segment.diff?.beforeUrl?.display || '')} → ${escapeHtml(segment.diff?.afterUrl?.display || '')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      ` : ''}
       <h3>Action Events</h3>
       ${events.length ? `
         <table>

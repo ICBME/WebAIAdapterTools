@@ -1,6 +1,7 @@
 import { sanitizeUrl } from './url.js';
 
 const RECORDER_BINDING = '__watRecordAction';
+const RECORDER_STORAGE_KEY = '__watActionEvents';
 
 function sanitizeMaybeUrl(value) {
   if (!value) return '';
@@ -53,10 +54,25 @@ export async function installActionRecorder(page) {
     exposed = true;
   });
 
-  const installer = bindingName => {
+  const installer = config => {
+    const bindingName = config.bindingName;
+    const storageKey = config.storageKey;
     if (window.__watActionRecorderInstalled) return;
     window.__watActionRecorderInstalled = true;
-    window.__watActionEvents = window.__watActionEvents || [];
+    function storedEvents() {
+      try {
+        const parsed = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    function persistEvents(value) {
+      try {
+        sessionStorage.setItem(storageKey, JSON.stringify(value.slice(-500)));
+      } catch {}
+    }
+    window.__watActionEvents = window.__watActionEvents || storedEvents();
     const startedAt = performance.now();
     const RISK = /\b(log\s*in|sign\s*in|sign\s*up|authorize|oauth|captcha|verify|verification|password|passcode|2fa|mfa|account)\b|登录|登陆|注册|授权|验证码|验证|密码/i;
 
@@ -163,6 +179,14 @@ export async function installActionRecorder(page) {
       return original || event.target;
     }
 
+    function isToolControlEvent(event) {
+      const path = event.composedPath?.() || [];
+      return path.some(node => node instanceof Element && (
+        node.id === '__wat_browser_controls' ||
+        node.getAttribute?.('data-wat-control') === 'true'
+      ));
+    }
+
     function emit(type, payload = {}) {
       const event = {
         type,
@@ -171,6 +195,7 @@ export async function installActionRecorder(page) {
         ...payload
       };
       window.__watActionEvents.push(event);
+      persistEvents(window.__watActionEvents);
       window[bindingName]?.(event).catch?.(() => {});
     }
 
@@ -180,6 +205,7 @@ export async function installActionRecorder(page) {
         target = target.shadowRoot.activeElement;
       }
       if (!(target instanceof Element)) return;
+      if (target.closest?.('#__wat_browser_controls, [data-wat-control="true"]')) return;
       const info = valueInfo(target);
       if (!info || !info.length) return;
       emit('input-snapshot', { target: describe(target), input: info, reason });
@@ -192,15 +218,18 @@ export async function installActionRecorder(page) {
       observedRoots.add(root);
 
       root.addEventListener('click', event => {
+        if (isToolControlEvent(event)) return;
         emit('click', { target: describe(eventTarget(event)) });
       }, true);
 
       root.addEventListener('input', event => {
+        if (isToolControlEvent(event)) return;
         const target = eventTarget(event);
         emit('input', { target: describe(target), input: valueInfo(target) });
       }, true);
 
       root.addEventListener('change', event => {
+        if (isToolControlEvent(event)) return;
         const target = eventTarget(event);
         if (target instanceof HTMLInputElement && target.type === 'file') {
           emit('file-change', {
@@ -217,6 +246,7 @@ export async function installActionRecorder(page) {
       }, true);
 
       root.addEventListener('submit', event => {
+        if (isToolControlEvent(event)) return;
         emit('submit', {
           target: describe(eventTarget(event)),
           submitter: describe(event.submitter)
@@ -224,6 +254,7 @@ export async function installActionRecorder(page) {
       }, true);
 
       root.addEventListener('keydown', event => {
+        if (isToolControlEvent(event)) return;
         if (event.key === 'Enter' || event.key === 'Tab' || event.key === 'Escape') {
           emit('key', {
             target: describe(eventTarget(event)),
@@ -262,14 +293,51 @@ export async function installActionRecorder(page) {
     window.addEventListener('beforeunload', () => recordActiveInput('beforeunload'), true);
   };
 
-  await page.addInitScript(installer, RECORDER_BINDING);
-  await page.evaluate(installer, RECORDER_BINDING).catch(error => {
-    installError = error.message;
+  const installerConfig = { bindingName: RECORDER_BINDING, storageKey: RECORDER_STORAGE_KEY };
+  await page.addInitScript(installer, installerConfig);
+
+  async function installIntoFrame(frame) {
+    await frame.evaluate(installer, installerConfig).catch(error => {
+      if (frame === page.mainFrame() && !/detached|destroyed|closed/i.test(error.message)) {
+        installError = installError || error.message;
+      }
+    });
+  }
+
+  async function installIntoFrames() {
+    await Promise.all(page.frames().map(frame => installIntoFrame(frame)));
+  }
+
+  await installIntoFrames();
+  page.on('frameattached', frame => {
+    installIntoFrame(frame).catch(() => {});
   });
+  page.on('framenavigated', frame => {
+    installIntoFrame(frame).catch(() => {});
+  });
+
+  async function collectFrameEvents() {
+    const frameEvents = [];
+    for (const frame of page.frames()) {
+      const current = await frame.evaluate(() => window.__watActionEvents || []).catch(() => []);
+      for (const event of current) frameEvents.push(event);
+    }
+    return frameEvents;
+  }
+
+  async function resetFrameEvents() {
+    await Promise.all(page.frames().map(frame => frame.evaluate(() => {
+      window.__watActionEvents = [];
+      try {
+        sessionStorage.removeItem('__watActionEvents');
+      } catch {}
+    }).catch(() => {})));
+  }
 
   return {
     async getEvents() {
-      const pageEvents = await page.evaluate(() => window.__watActionEvents || []).catch(() => []);
+      await installIntoFrames();
+      const pageEvents = await collectFrameEvents();
       const merged = events.slice();
       for (const event of pageEvents) {
         merged.push(normalizeEvent(event || {}, seq++, startedAt));
@@ -312,9 +380,8 @@ export async function installActionRecorder(page) {
       events.length = 0;
       seq = 1;
       startedAt = Date.now();
-      await page.evaluate(() => {
-        window.__watActionEvents = [];
-      }).catch(() => {});
+      await installIntoFrames();
+      await resetFrameEvents();
     },
     isInstalled() {
       return exposed && !installError;

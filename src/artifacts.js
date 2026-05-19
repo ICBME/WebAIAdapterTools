@@ -43,6 +43,7 @@ function actionSummary(actionCapture) {
     mode: actionCapture.mode,
     recorderInstalled: actionCapture.recorderInstalled,
     recorderInstallError: actionCapture.recorderInstallError || null,
+    segmentCount: actionCapture.segmentCount || actionCapture.segments?.length || 0,
     eventCount: actionCapture.events?.length || 0,
     networkRequestCount: actionCapture.network?.requests?.length || 0,
     diffCounts: actionCapture.diff?.counts || {},
@@ -101,19 +102,61 @@ export async function writeCaptureArtifacts(profile, outDir) {
     files.actionDiff = 'actions/diff.json';
     files.actionEvents = 'actions/events.json';
     files.actionNetwork = 'network/action.json';
+    files.actionSegments = 'actions/segments.json';
 
-    await writeJson(path.join(outDir, files.beforePage), profile.actionCapture.before.page);
-    await writeJson(path.join(outDir, files.beforeElements), profile.actionCapture.before.elements);
-    await writeJson(path.join(outDir, files.beforeRecommendations), profile.actionCapture.before.recommendations);
-    await writeJson(path.join(outDir, files.actionDiff), profile.actionCapture.diff);
+    await writeJson(path.join(outDir, files.beforePage), profile.actionCapture.before?.page || {});
+    await writeJson(path.join(outDir, files.beforeElements), profile.actionCapture.before?.elements || {});
+    await writeJson(path.join(outDir, files.beforeRecommendations), profile.actionCapture.before?.recommendations || {});
+    await writeJson(path.join(outDir, files.actionDiff), profile.actionCapture.diff || {});
     await writeJson(path.join(outDir, files.actionEvents), {
       mode: profile.actionCapture.mode,
       instructions: profile.actionCapture.instructions,
       recorderInstalled: profile.actionCapture.recorderInstalled,
       recorderInstallError: profile.actionCapture.recorderInstallError || null,
+      segmentCount: profile.actionCapture.segmentCount || profile.actionCapture.segments?.length || 0,
       events: profile.actionCapture.events || []
     });
     await writeJson(path.join(outDir, files.actionNetwork), profile.actionCapture.network || { summary: {}, requests: [] });
+
+    const segmentSummaries = [];
+    for (const segment of profile.actionCapture.segments || []) {
+      const segmentBase = `actions/segments/${segment.id}`;
+      const segmentFiles = {
+        events: `${segmentBase}/events.json`,
+        diff: `${segmentBase}/diff.json`,
+        network: `${segmentBase}/network.json`,
+        beforePage: `${segmentBase}/before-page.json`,
+        afterPage: `${segmentBase}/after-page.json`
+      };
+      await writeJson(path.join(outDir, segmentFiles.events), {
+        id: segment.id,
+        index: segment.index,
+        label: segment.label,
+        mode: segment.mode,
+        events: segment.events || []
+      });
+      await writeJson(path.join(outDir, segmentFiles.diff), segment.diff || {});
+      await writeJson(path.join(outDir, segmentFiles.network), segment.network || { summary: {}, requests: [] });
+      await writeJson(path.join(outDir, segmentFiles.beforePage), segment.before?.page || {});
+      await writeJson(path.join(outDir, segmentFiles.afterPage), segment.after?.page || {});
+      segmentSummaries.push({
+        id: segment.id,
+        index: segment.index,
+        label: segment.label,
+        mode: segment.mode,
+        eventCount: segment.events?.length || 0,
+        networkRequestCount: segment.network?.requests?.length || 0,
+        diffCounts: segment.diff?.counts || {},
+        beforeUrl: segment.diff?.beforeUrl || segment.before?.page?.url || null,
+        afterUrl: segment.diff?.afterUrl || segment.after?.page?.url || null,
+        files: segmentFiles
+      });
+    }
+    await writeJson(path.join(outDir, files.actionSegments), {
+      mode: profile.actionCapture.mode,
+      segmentCount: segmentSummaries.length,
+      segments: segmentSummaries
+    });
   }
 
   const index = buildIndex(profile, files);

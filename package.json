@@ -10,6 +10,8 @@
   "scripts": {
     "collect": "node ./src/cli.js",
     "analyze": "node ./src/analyzeCli.js",
+    "generate-adapter": "node ./src/generateAdapterCli.js",
+    "verify-adapter": "node ./src/verifyAdapterCli.js",
     "test": "node --test"
   },
   "dependencies": {
