@@ -10,12 +10,13 @@ import { writeCaptureArtifacts } from './artifacts.js';
 
 function printHelp() {
   console.log(`Usage:
-  pnpm collect <url> --out <dir> [--user-data-dir <dir>] [--interactive] [--record-action] [--browser-controls] [--action-count 1] [--headless] [--timeout 60000] [--browser-path <path>] [--window-size 1280x720]
+  pnpm collect <url> --out <dir> [--user-data-dir <dir>] [--interactive] [--record-action] [--ai-record-action] [--ai-goal <text>] [--ai-input <text>] [--ai-mode hybrid] [--ai-provider raw|langgraph] [--browser-controls] [--action-count 1] [--headless] [--timeout 60000] [--browser-path <path>] [--window-size 1280x720]
 
 Examples:
   pnpm collect https://example.com/app --out captures/example
   pnpm collect https://example.com/app --out captures/private --interactive --user-data-dir profiles/example
   pnpm collect https://example.com/app --out captures/action --record-action --user-data-dir profiles/example
+  pnpm collect https://example.com/app --out captures/ai-action --ai-record-action --ai-goal "send a message and wait for the response" --ai-input "hello"
   pnpm collect https://example.com/app --out captures/action --record-action --browser-controls --user-data-dir profiles/example
   pnpm collect https://example.com/app --out captures/action --record-action --action-count 3 --user-data-dir profiles/example
   pnpm collect https://example.com/app --out captures/example --window-size 1366x768
@@ -29,6 +30,14 @@ function parseArgs(argv) {
     userDataDir: defaultUserDataDir(),
     interactive: false,
     recordAction: false,
+    aiRecordAction: false,
+    aiGoal: '',
+    aiInput: '',
+    aiMode: 'hybrid',
+    aiProvider: process.env.WEBADAPTERTOOLS_AI_PROVIDER || 'raw',
+    aiMaxSteps: 8,
+    aiModel: null,
+    aiMinConfidence: 0.7,
     browserControls: false,
     actionCount: null,
     headless: false,
@@ -49,6 +58,23 @@ function parseArgs(argv) {
       args.interactive = true;
     } else if (arg === '--record-action') {
       args.recordAction = true;
+    } else if (arg === '--ai-record-action') {
+      args.aiRecordAction = true;
+      args.recordAction = true;
+    } else if (arg === '--ai-goal') {
+      args.aiGoal = argv[++i];
+    } else if (arg === '--ai-input') {
+      args.aiInput = argv[++i];
+    } else if (arg === '--ai-mode') {
+      args.aiMode = argv[++i];
+    } else if (arg === '--ai-provider') {
+      args.aiProvider = argv[++i];
+    } else if (arg === '--ai-max-steps') {
+      args.aiMaxSteps = Number(argv[++i]);
+    } else if (arg === '--ai-model') {
+      args.aiModel = argv[++i];
+    } else if (arg === '--ai-min-confidence') {
+      args.aiMinConfidence = Number(argv[++i]);
     } else if (arg === '--browser-controls') {
       args.browserControls = true;
       args.recordAction = true;
@@ -81,6 +107,21 @@ function parseArgs(argv) {
   if (args.browserControls && args.headless) {
     throw new Error('--browser-controls requires a headed browser. Remove --headless.');
   }
+  if (args.aiRecordAction && !args.aiGoal) {
+    throw new Error('--ai-record-action requires --ai-goal');
+  }
+  if (!['auto', 'assist', 'hybrid'].includes(args.aiMode)) {
+    throw new Error('--ai-mode must be auto, assist, or hybrid');
+  }
+  if (!['raw', 'langgraph'].includes(args.aiProvider)) {
+    throw new Error('--ai-provider must be raw or langgraph');
+  }
+  if (!Number.isInteger(args.aiMaxSteps) || args.aiMaxSteps <= 0) {
+    throw new Error('--ai-max-steps must be a positive integer');
+  }
+  if (!Number.isFinite(args.aiMinConfidence) || args.aiMinConfidence < 0 || args.aiMinConfidence > 1) {
+    throw new Error('--ai-min-confidence must be a number between 0 and 1');
+  }
 
   return args;
 }
@@ -94,10 +135,11 @@ Do not log in, solve captchas, or perform sensitive account actions as part of t
 Current page: ${page.url()}
 Press Enter here after the page has produced the result you want captured.`);
   } else {
+    const instruction = meta.instruction ? `\nAI instruction:\n${meta.instruction}\n` : '';
     console.log(`Interactive mode enabled.
 Navigate or log in manually in the opened browser window.
 Current page: ${page.url()}
-Press Enter here when the page is ready to profile.`);
+${instruction}Press Enter here when the page is ready to profile.`);
   }
   const rl = readline.createInterface({ input, output });
   await rl.question('');
@@ -123,8 +165,16 @@ async function main() {
     timeout: args.timeout,
     browserPath: args.browserPath ? path.resolve(args.browserPath) : null,
     windowSize: args.windowSize,
-    interactive: args.interactive || args.recordAction,
+    interactive: args.interactive || (args.recordAction && !args.aiRecordAction),
     recordAction: args.recordAction,
+    aiRecordAction: args.aiRecordAction,
+    aiGoal: args.aiGoal,
+    aiInput: args.aiInput,
+    aiMode: args.aiMode,
+    aiProvider: args.aiProvider,
+    aiMaxSteps: args.aiMaxSteps,
+    aiModel: args.aiModel,
+    aiMinConfidence: args.aiMinConfidence,
     browserControls: args.browserControls,
     actionCount: args.actionCount || (args.browserControls ? 20 : 1),
     waitForUser: (args.interactive || args.recordAction) ? waitForEnter : null

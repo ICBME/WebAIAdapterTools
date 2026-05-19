@@ -153,6 +153,58 @@ test('collectPageProfile records multiple action segments', async (t) => {
   assert.equal(profile.actionCapture.segments[0].diff.counts.textChanged >= 1, true);
 });
 
+test('collectPageProfile records AI assist action with controller log', async (t) => {
+  try {
+    await import('camoufox-js');
+    assertCompatibleDependencyVersions();
+  } catch {
+    t.skip('compatible Camoufox dependencies are not installed');
+    return;
+  }
+
+  const fixtureUrl = new URL('../fixtures/chat.html', import.meta.url).href;
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'web-adapter-tools-ai-assist-'));
+
+  let profile;
+  try {
+    profile = await collectPageProfile({
+      url: fixtureUrl,
+      userDataDir: path.join(tempDir, 'profile'),
+      headless: true,
+      timeout: 30000,
+      aiRecordAction: true,
+      aiMode: 'assist',
+      aiGoal: 'send a message and wait for the response',
+      aiInput: 'hello assist',
+      waitForUser: async (page, phase) => {
+        if (phase === 'ai-assist') {
+          await page.evaluate(() => {
+            document.querySelector('form')?.addEventListener('submit', event => {
+              event.preventDefault();
+              document.querySelector('.assistant-message').textContent = 'AI assist answered.';
+            }, { once: true });
+          });
+          await page.fill('#prompt', 'hello assist');
+          await page.click('button[aria-label="Send message"]');
+        }
+      }
+    });
+  } catch (error) {
+    if (/executable|Camoufox|browser|ENOENT|missing|install/i.test(error.message)) {
+      t.skip(`Camoufox runtime unavailable: ${error.message}`);
+      return;
+    }
+    throw error;
+  }
+
+  assert.equal(profile.actionCapture.mode, 'ai-assist');
+  assert.equal(profile.actionCapture.segmentCount, 1);
+  assert.equal(profile.actionCapture.segments[0].controller.mode, 'assist');
+  assert.equal(profile.actionCapture.segments[0].controller.fallbackCount, 1);
+  assert.ok(profile.actionCapture.events.some(event => event.type === 'input'));
+  assert.equal(profile.actionCapture.diff.counts.textChanged >= 1, true);
+});
+
 test('collectPageProfile records action events from iframes', async (t) => {
   try {
     await import('camoufox-js');

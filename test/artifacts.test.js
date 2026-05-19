@@ -54,7 +54,15 @@ test('writeCaptureArtifacts writes a structured capture bundle', async () => {
           before,
           after,
           diff: { counts: { addedElements: 1 } },
-          network: { summary: {}, requests: [{ id: 1 }] }
+          network: { summary: {}, requests: [{ id: 1 }] },
+          controller: {
+            schemaVersion: 'web-adapter-tools.ai-controller.v1',
+            mode: 'hybrid',
+            completed: true,
+            fallbackCount: 1,
+            stepCount: 2,
+            steps: []
+          }
         }
       ],
       before,
@@ -78,9 +86,16 @@ test('writeCaptureArtifacts writes a structured capture bundle', async () => {
   assert.equal(profileIndex.action.eventCount, 1);
   assert.equal(profileIndex.action.segmentCount, 1);
   assert.equal(profileIndex.action.recorderInstalled, true);
+  assert.equal(profileIndex.action.controllerCount, 1);
+  assert.equal(profileIndex.action.fallbackCount, 1);
   assert.equal(events.recorderInstalled, true);
   assert.equal(events.events[0].type, 'click');
   assert.equal(segments.segmentCount, 1);
   assert.equal(segmentEvents.id, 'action-001');
+  assert.equal(segments.segments[0].files.controller, 'actions/segments/action-001/controller.json');
+  assert.equal(segments.segments[0].controller.completed, true);
   assert.equal(afterPage.title, 'after');
+
+  const controller = JSON.parse(await fs.readFile(path.join(outDir, 'actions/segments/action-001/controller.json'), 'utf8'));
+  assert.equal(controller.mode, 'hybrid');
 });

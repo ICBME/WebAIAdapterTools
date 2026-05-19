@@ -39,6 +39,7 @@ function networkSummary(network) {
 
 function actionSummary(actionCapture) {
   if (!actionCapture) return null;
+  const controllerSegments = (actionCapture.segments || []).filter(segment => segment.controller);
   return {
     mode: actionCapture.mode,
     recorderInstalled: actionCapture.recorderInstalled,
@@ -46,6 +47,8 @@ function actionSummary(actionCapture) {
     segmentCount: actionCapture.segmentCount || actionCapture.segments?.length || 0,
     eventCount: actionCapture.events?.length || 0,
     networkRequestCount: actionCapture.network?.requests?.length || 0,
+    controllerCount: controllerSegments.length,
+    fallbackCount: controllerSegments.reduce((sum, segment) => sum + Number(segment.controller?.fallbackCount || 0), 0),
     diffCounts: actionCapture.diff?.counts || {},
     beforeUrl: actionCapture.diff?.beforeUrl || null,
     afterUrl: actionCapture.diff?.afterUrl || null
@@ -128,6 +131,7 @@ export async function writeCaptureArtifacts(profile, outDir) {
         beforePage: `${segmentBase}/before-page.json`,
         afterPage: `${segmentBase}/after-page.json`
       };
+      if (segment.controller) segmentFiles.controller = `${segmentBase}/controller.json`;
       await writeJson(path.join(outDir, segmentFiles.events), {
         id: segment.id,
         index: segment.index,
@@ -139,6 +143,9 @@ export async function writeCaptureArtifacts(profile, outDir) {
       await writeJson(path.join(outDir, segmentFiles.network), segment.network || { summary: {}, requests: [] });
       await writeJson(path.join(outDir, segmentFiles.beforePage), segment.before?.page || {});
       await writeJson(path.join(outDir, segmentFiles.afterPage), segment.after?.page || {});
+      if (segment.controller) {
+        await writeJson(path.join(outDir, segmentFiles.controller), segment.controller);
+      }
       segmentSummaries.push({
         id: segment.id,
         index: segment.index,
@@ -147,6 +154,13 @@ export async function writeCaptureArtifacts(profile, outDir) {
         eventCount: segment.events?.length || 0,
         networkRequestCount: segment.network?.requests?.length || 0,
         diffCounts: segment.diff?.counts || {},
+        controller: segment.controller ? {
+          mode: segment.controller.mode,
+          provider: segment.controller.provider || null,
+          completed: segment.controller.completed,
+          fallbackCount: segment.controller.fallbackCount,
+          stepCount: segment.controller.stepCount
+        } : null,
         beforeUrl: segment.diff?.beforeUrl || segment.before?.page?.url || null,
         afterUrl: segment.diff?.afterUrl || segment.after?.page?.url || null,
         files: segmentFiles

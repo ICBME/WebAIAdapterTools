@@ -19,6 +19,15 @@ function controlInstaller(config) {
     return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
   }
 
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function emit(type, extra = {}) {
     const label = compact(document.getElementById(`${controlId}_label`)?.value || window.__watControlState.label);
     const payload = {
@@ -74,7 +83,7 @@ function controlInstaller(config) {
           <strong>WebAdapterTools</strong>
           <span style="font-size:11px;color:#4b5563;">Prepare</span>
         </div>
-        <div style="color:#374151;margin-bottom:10px;">${state.message}</div>
+        <div style="color:#374151;margin-bottom:10px;">${escapeHtml(state.message)}</div>
         <div style="display:flex;gap:8px;justify-content:flex-end;">
           ${button(`${controlId}_prepare`, 'Capture baseline', true)}
         </div>`;
@@ -108,6 +117,23 @@ function controlInstaller(config) {
           ${button(`${controlId}_finish_next`, 'Finish action')}
           ${button(`${controlId}_finish_all`, 'Finish capture', true)}
         </div>`;
+    } else if (state.phase === 'assist') {
+      body = `
+        <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <strong>AI assist ${state.actionIndex}</strong>
+          <span style="font-size:11px;color:#92400e;">Human needed</span>
+        </div>
+        <div style="color:#374151;margin-bottom:10px;white-space:pre-wrap;">${escapeHtml(state.message || 'Complete the instructed action, then continue.')}</div>
+        <label style="display:block;margin-bottom:8px;color:#374151;">Action label
+          <input id="${controlId}_label" value="${label.replace(/"/g, '&quot;')}" placeholder="optional" style="
+            width:100%;box-sizing:border-box;margin-top:4px;border:1px solid #9ca3af;border-radius:6px;padding:6px;
+          ">
+        </label>
+        <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+          ${button(`${controlId}_assist_retry`, 'Let AI retry')}
+          ${button(`${controlId}_assist_abort`, 'Abort')}
+          ${button(`${controlId}_assist_done`, 'Done', true)}
+        </div>`;
     } else {
       body = `
         <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:8px;">
@@ -122,6 +148,9 @@ function controlInstaller(config) {
     document.getElementById(`${controlId}_start`)?.addEventListener('click', () => emit('start-action'));
     document.getElementById(`${controlId}_finish_next`)?.addEventListener('click', () => emit('finish-action'));
     document.getElementById(`${controlId}_finish_all`)?.addEventListener('click', () => emit('finish-capture'));
+    document.getElementById(`${controlId}_assist_done`)?.addEventListener('click', () => emit('assist-done'));
+    document.getElementById(`${controlId}_assist_retry`)?.addEventListener('click', () => emit('assist-retry'));
+    document.getElementById(`${controlId}_assist_abort`)?.addEventListener('click', () => emit('assist-abort'));
   }
 
   window.__watSetControlState = nextState => {

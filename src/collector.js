@@ -8,6 +8,7 @@ import { diffSnapshots } from './actionDiff.js';
 import { DEFAULT_WINDOW_SIZE } from './size.js';
 import { installActionRecorder } from './actionRecorder.js';
 import { installBrowserControls } from './browserControls.js';
+import { runAiHybridAction } from './ai/controller.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -114,6 +115,14 @@ export async function collectPageProfile(options) {
     windowSize = DEFAULT_WINDOW_SIZE,
     interactive = false,
     recordAction = false,
+    aiRecordAction = false,
+    aiGoal = '',
+    aiInput = '',
+    aiMode = 'hybrid',
+    aiProvider = 'raw',
+    aiMaxSteps = 8,
+    aiModel = null,
+    aiMinConfidence = 0.7,
     browserControls = false,
     actionCount = null,
     waitForUser
@@ -141,7 +150,8 @@ export async function collectPageProfile(options) {
     const page = context.pages()[0] || await context.newPage();
     await page.setViewportSize({ width: fixedWindow[0], height: fixedWindow[1] }).catch(() => {});
     const networkRecorder = attachNetworkRecorder(page);
-    const actionRecorder = recordAction ? await installActionRecorder(page) : null;
+    const effectiveRecordAction = recordAction || aiRecordAction;
+    const actionRecorder = effectiveRecordAction ? await installActionRecorder(page) : null;
     const controlPanel = browserControls ? await installBrowserControls(page) : null;
     await page.goto(url, { waitUntil: 'load', timeout }).catch(error => {
       throw new Error(`Navigation failed: ${error.message}`);
@@ -155,7 +165,7 @@ export async function collectPageProfile(options) {
         message: 'Prepare the page, then capture the baseline.'
       });
       await controlPanel.waitFor('prepare-ready');
-    } else if ((interactive || recordAction) && waitForUser) {
+    } else if ((interactive || (recordAction && !aiRecordAction)) && waitForUser) {
       await waitForUser(page, 'prepare');
     }
 
@@ -163,7 +173,7 @@ export async function collectPageProfile(options) {
     const baseOptions = captureOptions({
       headless,
       interactive,
-      recordAction,
+      recordAction: recordAction || aiRecordAction,
       browserControls,
       actionCount: effectiveActionCount,
       timeout,
@@ -179,11 +189,58 @@ export async function collectPageProfile(options) {
       options: baseOptions
     });
 
-    if (recordAction && (waitForUser || browserControls)) {
+    if ((recordAction || aiRecordAction) && (waitForUser || browserControls || aiRecordAction)) {
       const initialNetwork = networkRecorder.getSummary();
       const segments = [];
 
-      if (browserControls && controlPanel) {
+      if (aiRecordAction) {
+        const beforeAction = await collectPageSnapshot(page, {
+          initialUrl: sanitizeUrl(url),
+          finalUrl: sanitizeUrl(page.url()),
+          capturedAt: new Date().toISOString(),
+          viewport: page.viewportSize(),
+          options: baseOptions,
+          phase: 'beforeAction:ai'
+        });
+        networkRecorder.reset();
+        await actionRecorder.reset();
+        const controllerLog = await runAiHybridAction(page, {
+          goal: aiGoal,
+          aiInput,
+          mode: aiMode,
+          providerType: aiProvider,
+          maxSteps: aiMaxSteps,
+          model: aiModel,
+          minConfidence: aiMinConfidence,
+          timeout,
+          initialUrl: sanitizeUrl(url),
+          captureOptions: baseOptions,
+          controlPanel,
+          waitForUser
+        });
+        await page.waitForLoadState('networkidle', { timeout: Math.min(timeout, 30000) }).catch(() => {});
+        const afterAction = await collectPageSnapshot(page, {
+          initialUrl: sanitizeUrl(url),
+          finalUrl: sanitizeUrl(page.url()),
+          capturedAt: new Date().toISOString(),
+          viewport: page.viewportSize(),
+          options: baseOptions,
+          phase: 'afterAction:ai'
+        });
+        segments.push({
+          id: 'action-001',
+          index: 1,
+          label: 'ai-action',
+          mode: `ai-${aiMode}`,
+          before: snapshotParts(beforeAction),
+          after: snapshotParts(afterAction),
+          diff: diffSnapshots(beforeAction, afterAction),
+          events: await actionRecorder.getEvents(),
+          network: networkRecorder.getSummary(),
+          controller: controllerLog
+        });
+        if (controlPanel) await controlPanel.setState({ phase: 'done' });
+      } else if (browserControls && controlPanel) {
         const maxActions = effectiveActionCount;
         for (let index = 1; index <= maxActions; index++) {
           await controlPanel.setState({ phase: 'ready', actionIndex: index, label: '' });
@@ -262,7 +319,7 @@ export async function collectPageProfile(options) {
       }
 
       profile.actionCapture = buildActionCapture({
-        mode: browserControls ? 'browser-controls' : effectiveActionCount > 1 ? 'manual-multi' : 'manual',
+        mode: aiRecordAction ? `ai-${aiMode}` : browserControls ? 'browser-controls' : effectiveActionCount > 1 ? 'manual-multi' : 'manual',
         actionRecorder,
         segments
       });

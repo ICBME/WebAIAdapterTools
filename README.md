@@ -23,6 +23,7 @@ pnpm collect https://example.com/app --out captures/example
 pnpm collect https://example.com/app --out captures/private --interactive --user-data-dir profiles/example
 pnpm collect https://example.com/app --out captures/example --headless --timeout 60000
 pnpm collect https://example.com/app --out captures/action --record-action --user-data-dir profiles/example
+pnpm collect https://example.com/app --out captures/ai-action --ai-record-action --ai-goal "send a message and wait for the response" --ai-input "hello"
 pnpm collect https://example.com/app --out captures/action --record-action --browser-controls --user-data-dir profiles/example
 pnpm collect https://example.com/app --out captures/action --record-action --action-count 3 --user-data-dir profiles/example
 pnpm collect https://example.com/app --out captures/example --window-size 1366x768
@@ -45,6 +46,7 @@ Outputs:
 - `actions/diff.json`: before/after DOM diff when `--record-action` is used.
 - `actions/segments.json`: per-action segment index when multiple actions are recorded.
 - `actions/segments/<action-id>/events.json`, `diff.json`, `network.json`: per-action logs when action recording is used.
+- `actions/segments/<action-id>/controller.json`: AI controller log when `--ai-record-action` is used.
 - `interface.json` + `interface.md`: generated interface plan after running `pnpm analyze`.
 - `profile.html`: offline human review report.
 
@@ -150,10 +152,76 @@ Use `--browser-controls` to complete the recording flow from a floating control 
 
 With browser controls, the default maximum is 20 action segments. Pass `--action-count N` to lower or raise that limit. Without browser controls, `--action-count N` repeats the terminal prompt N times and writes each prompt as a separate action segment.
 
+## AI-Assisted Action Capture
+
+Use `--ai-record-action` when you want an AI controller to perform the target action before `pnpm analyze`.
+
+```bash
+WEBADAPTERTOOLS_AI_API_KEY=sk-... \
+pnpm collect https://example.com/app \
+  --out captures/ai-action \
+  --ai-record-action \
+  --ai-goal "type a test message, submit it, and wait for the response" \
+  --ai-input "hello" \
+  --ai-provider langgraph \
+  --ai-mode hybrid
+```
+
+Modes:
+
+- `--ai-mode hybrid`: AI tries safe structured actions first, then falls back to human assistance when confidence is low or execution fails.
+- `--ai-mode auto`: AI-only. The capture fails instead of asking for human help.
+- `--ai-mode assist`: AI does not operate the page; it gives human instructions and records the human action.
+
+The AI provider is OpenAI-compatible and uses these environment variables:
+
+- `WEBADAPTERTOOLS_AI_API_KEY` or `OPENAI_API_KEY`
+- `WEBADAPTERTOOLS_AI_BASE_URL` (optional, defaults to `https://api.openai.com/v1`)
+- `WEBADAPTERTOOLS_AI_MODEL` (optional, defaults to `gpt-5.4-mini`)
+- `WEBADAPTERTOOLS_AI_PROVIDER=raw|langgraph` (optional, defaults to `raw`)
+
+Use `--ai-provider langgraph` to route AI decisions through a LangGraph `StateGraph` node backed by LangChain `ChatOpenAI`. This makes the decision call visible as a graph/model stack in LangSmith when tracing is enabled:
+
+```bash
+export LANGSMITH_TRACING=true
+export LANGSMITH_API_KEY=lsv2_...
+export LANGSMITH_PROJECT=web-adapter-tools
+export LANGCHAIN_CALLBACKS_BACKGROUND=false
+export WEBADAPTERTOOLS_AI_API_KEY=sk-...
+
+pnpm collect https://example.com/app \
+  --out captures/ai-action \
+  --ai-record-action \
+  --ai-goal "search for the test query and wait for results" \
+  --ai-input "test query" \
+  --ai-provider langgraph \
+  --ai-mode hybrid \
+  --browser-controls
+```
+
+The default `raw` provider keeps the direct OpenAI-compatible HTTP call for minimal dependencies and simpler debugging.
+
+The controller only accepts structured JSON decisions and only executes whitelisted browser actions (`fill`, `click`, `press`, `wait`) against captured element `idRef` targets. It does not run AI-generated JavaScript. Login, captcha, payment, account, password, purchase, and delete-like targets trigger human fallback or failure.
+
+When human fallback is needed, use `--browser-controls` for in-page instructions:
+
+```bash
+pnpm collect https://example.com/app \
+  --out captures/ai-action \
+  --ai-record-action \
+  --ai-goal "search for the test query and wait for results" \
+  --ai-input "test query" \
+  --ai-mode hybrid \
+  --browser-controls
+```
+
+AI-assisted captures write the normal `events/diff/network` files plus `actions/segments/<action-id>/controller.json`, which records AI decisions, human fallback instructions, and completion status.
+
 Typical workflow:
 
 ```bash
 pnpm collect https://example.com/app --out captures/action --record-action --user-data-dir profiles/example
+pnpm collect https://example.com/app --out captures/ai-action --ai-record-action --ai-goal "send a message and wait for the response" --ai-input "hello"
 pnpm collect https://example.com/app --out captures/action --record-action --browser-controls --user-data-dir profiles/example
 pnpm analyze captures/action
 ```
