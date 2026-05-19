@@ -1,4 +1,5 @@
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
+const DEFAULT_AI_TIMEOUT = 180000;
 
 function compact(value, max = 4000) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -48,6 +49,27 @@ function providerType(options = {}) {
   return options.providerType || options.provider || process.env.WEBADAPTERTOOLS_AI_PROVIDER || 'raw';
 }
 
+export function resolveAiTimeout(options = {}) {
+  const value = options.timeout ?? options.aiTimeout ?? process.env.WEBADAPTERTOOLS_AI_TIMEOUT;
+  const numeric = Number(value || DEFAULT_AI_TIMEOUT);
+  if (!Number.isFinite(numeric) || numeric <= 0) return DEFAULT_AI_TIMEOUT;
+  return numeric;
+}
+
+async function withTimeout(task, timeout, label) {
+  let timer = null;
+  try {
+    return await Promise.race([
+      task,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeout}ms`)), timeout);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function messageContent(message) {
   if (typeof message?.content === 'string') return message.content;
   if (Array.isArray(message?.content)) {
@@ -71,6 +93,7 @@ async function createLangGraphAiProvider(options = {}) {
   const baseUrl = options.baseUrl || process.env.WEBADAPTERTOOLS_AI_BASE_URL || DEFAULT_BASE_URL;
   const apiKey = options.apiKey || process.env.WEBADAPTERTOOLS_AI_API_KEY || process.env.OPENAI_API_KEY || '';
   const model = options.model || process.env.WEBADAPTERTOOLS_AI_MODEL || 'gpt-5.4-mini';
+  const timeout = resolveAiTimeout(options);
   if (!apiKey) {
     throw new Error('Missing AI API key. Set WEBADAPTERTOOLS_AI_API_KEY or OPENAI_API_KEY, or use --ai-mode assist.');
   }
@@ -80,6 +103,7 @@ async function createLangGraphAiProvider(options = {}) {
     temperature: 0,
     apiKey,
     openAIApiKey: apiKey,
+    timeout,
     configuration: {
       baseURL: baseUrl
     },
@@ -121,21 +145,23 @@ async function createLangGraphAiProvider(options = {}) {
 
   return {
     type: 'langgraph',
+    timeout,
     async decide(observation) {
       const messages = [
         { role: 'system', content: buildSystemPrompt() },
         { role: 'user', content: buildUserPrompt(observation) }
       ];
-      const output = await graph.invoke({ messages }, {
+      const output = await withTimeout(graph.invoke({ messages }, {
         runName: 'wat_ai_capture_decision_graph',
         tags: ['web-adapter-tools', 'ai-capture', observation.mode || 'hybrid'],
         metadata: {
           goal: compact(observation.goal, 500),
           stepIndex: observation.stepIndex,
           pageTitle: observation.page?.title || '',
-          pageUrl: observation.page?.url || ''
+          pageUrl: observation.page?.url || '',
+          timeoutMs: timeout
         }
-      });
+      }), timeout, 'LangGraph AI decision');
       const lastMessage = output?.messages?.[output.messages.length - 1];
       return extractJsonObject(messageContent(lastMessage));
     }
@@ -146,30 +172,45 @@ function createRawAiProvider(options = {}) {
   const baseUrl = options.baseUrl || process.env.WEBADAPTERTOOLS_AI_BASE_URL || DEFAULT_BASE_URL;
   const apiKey = options.apiKey || process.env.WEBADAPTERTOOLS_AI_API_KEY || process.env.OPENAI_API_KEY || '';
   const model = options.model || process.env.WEBADAPTERTOOLS_AI_MODEL || 'gpt-5.4-mini';
+  const timeout = resolveAiTimeout(options);
 
   return {
     type: 'raw',
+    timeout,
     async decide(observation) {
       if (!apiKey) {
         throw new Error('Missing AI API key. Set WEBADAPTERTOOLS_AI_API_KEY or OPENAI_API_KEY, or use --ai-mode assist.');
       }
 
-      const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model,
-          temperature: 0,
-          response_format: { type: 'json_object' },
-          messages: [
-            { role: 'system', content: buildSystemPrompt() },
-            { role: 'user', content: buildUserPrompt(observation) }
-          ]
-        })
-      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeout);
+      let response;
+      try {
+        response = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${apiKey}`
+          },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model,
+            temperature: 0,
+            response_format: { type: 'json_object' },
+            messages: [
+              { role: 'system', content: buildSystemPrompt() },
+              { role: 'user', content: buildUserPrompt(observation) }
+            ]
+          })
+        });
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          throw new Error(`AI request timed out after ${timeout}ms`);
+        }
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');

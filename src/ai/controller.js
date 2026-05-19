@@ -1,6 +1,6 @@
 import { collectPageSnapshot } from '../pageProfile.js';
 import { buildAiObservation, serializeObservationForAi } from './observation.js';
-import { createAiProvider, normalizeAiDecision } from './provider.js';
+import { createAiProvider, normalizeAiDecision, resolveAiTimeout } from './provider.js';
 import { executeAiDecision, shouldFallbackDecision } from './executor.js';
 
 function compact(value, max = 500) {
@@ -56,11 +56,13 @@ async function decide(provider, observation, options) {
 export async function runAiHybridAction(page, options = {}) {
   const mode = options.mode || 'hybrid';
   const maxSteps = Math.max(1, Number(options.maxSteps || 8));
+  const aiTimeout = resolveAiTimeout(options);
   const provider = options.provider || await createAiProvider({
     providerType: options.providerType,
     baseUrl: options.baseUrl,
     apiKey: options.apiKey,
-    model: options.model
+    model: options.model,
+    timeout: aiTimeout
   });
   const steps = [];
   let completed = false;
@@ -139,7 +141,7 @@ export async function runAiHybridAction(page, options = {}) {
         instruction,
         signal
       });
-      await page.waitForLoadState('networkidle', { timeout: Math.min(Number(options.timeout || 30000), 30000) }).catch(() => {});
+      await page.waitForLoadState('networkidle', { timeout: aiTimeout }).catch(() => {});
       if (mode === 'assist') {
         completed = true;
         break;
@@ -148,7 +150,7 @@ export async function runAiHybridAction(page, options = {}) {
     }
 
     const execution = await executeAiDecision(page, observation, decision, {
-      timeout: Math.min(Number(options.timeout || 30000), 30000),
+      timeout: aiTimeout,
       minConfidence: options.minConfidence
     });
 
@@ -181,7 +183,7 @@ export async function runAiHybridAction(page, options = {}) {
         execution
       });
       if (decision.waitAfter === 'networkidle') {
-        await page.waitForLoadState('networkidle', { timeout: Math.min(Number(options.timeout || 30000), 30000) }).catch(() => {});
+        await page.waitForLoadState('networkidle', { timeout: aiTimeout }).catch(() => {});
       }
     }
   }
@@ -190,6 +192,7 @@ export async function runAiHybridAction(page, options = {}) {
     schemaVersion: 'web-adapter-tools.ai-controller.v1',
     mode,
     provider: provider.type || options.providerType || 'custom',
+    timeoutMs: aiTimeout,
     goal: options.goal || '',
     inputPreview: compact(options.aiInput, 160),
     completed,

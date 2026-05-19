@@ -157,6 +157,7 @@ export async function writeCaptureArtifacts(profile, outDir) {
         controller: segment.controller ? {
           mode: segment.controller.mode,
           provider: segment.controller.provider || null,
+          timeoutMs: segment.controller.timeoutMs || null,
           completed: segment.controller.completed,
           fallbackCount: segment.controller.fallbackCount,
           stepCount: segment.controller.stepCount

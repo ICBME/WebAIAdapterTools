@@ -164,6 +164,7 @@ pnpm collect https://example.com/app \
   --ai-goal "type a test message, submit it, and wait for the response" \
   --ai-input "hello" \
   --ai-provider langgraph \
+  --ai-timeout 180000 \
   --ai-mode hybrid
 ```
 
@@ -179,6 +180,19 @@ The AI provider is OpenAI-compatible and uses these environment variables:
 - `WEBADAPTERTOOLS_AI_BASE_URL` (optional, defaults to `https://api.openai.com/v1`)
 - `WEBADAPTERTOOLS_AI_MODEL` (optional, defaults to `gpt-5.4-mini`)
 - `WEBADAPTERTOOLS_AI_PROVIDER=raw|langgraph` (optional, defaults to `raw`)
+- `WEBADAPTERTOOLS_AI_TIMEOUT` (optional, defaults to `180000` ms)
+
+`--ai-timeout <ms>` controls the AI decision request timeout and the per-step browser wait timeout used by the AI controller. Increase it for high-latency networks, long model reasoning, or slow result pages:
+
+```bash
+pnpm collect https://example.com/app \
+  --out captures/ai-action \
+  --ai-record-action \
+  --ai-goal "search for the test query and wait for results" \
+  --ai-input "test query" \
+  --ai-provider langgraph \
+  --ai-timeout 300000
+```
 
 Use `--ai-provider langgraph` to route AI decisions through a LangGraph `StateGraph` node backed by LangChain `ChatOpenAI`. This makes the decision call visible as a graph/model stack in LangSmith when tracing is enabled:
 
@@ -195,6 +209,7 @@ pnpm collect https://example.com/app \
   --ai-goal "search for the test query and wait for results" \
   --ai-input "test query" \
   --ai-provider langgraph \
+  --ai-timeout 300000 \
   --ai-mode hybrid \
   --browser-controls
 ```

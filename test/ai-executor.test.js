@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildAiObservation, serializeObservationForAi } from '../src/ai/observation.js';
 import { executeAiDecision, shouldFallbackDecision } from '../src/ai/executor.js';
-import { createAiProvider, normalizeAiDecision } from '../src/ai/provider.js';
+import { createAiProvider, normalizeAiDecision, resolveAiTimeout } from '../src/ai/provider.js';
 
 function snapshot() {
   const input = {
@@ -101,6 +101,82 @@ test('executeAiDecision fills a selected targetRef', async () => {
   ]);
 });
 
+test('executeAiDecision retries click after pointer interception', async () => {
+  const observation = buildAiObservation(snapshot(), { aiInput: 'hello' });
+  const calls = [];
+  let clicks = 0;
+  const locator = {
+    first: () => locator,
+    waitFor: async () => calls.push(['waitFor']),
+    click: async options => {
+      calls.push(['click', options?.force || false]);
+      clicks += 1;
+      if (clicks === 1) {
+        throw new Error('<div role="tooltip"> subtree intercepts pointer events');
+      }
+    }
+  };
+  const page = {
+    locator: selector => {
+      calls.push(['locator', selector]);
+      return locator;
+    },
+    keyboard: {
+      press: async key => calls.push(['key', key])
+    },
+    mouse: {
+      move: async (x, y) => calls.push(['mouse', x, y])
+    },
+    waitForTimeout: async ms => calls.push(['wait', ms])
+  };
+
+  const result = await executeAiDecision(page, observation, {
+    mode: 'execute',
+    confidence: 0.9,
+    action: 'click',
+    targetRef: 'el_2'
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.retries, 1);
+  assert.deepEqual(calls, [
+    ['locator', '#send'],
+    ['waitFor'],
+    ['click', false],
+    ['key', 'Escape'],
+    ['mouse', 1, 1],
+    ['wait', 250],
+    ['click', false]
+  ]);
+});
+
+test('executeAiDecision returns fallback when click remains blocked', async () => {
+  const observation = buildAiObservation(snapshot(), { aiInput: 'hello' });
+  const locator = {
+    first: () => locator,
+    waitFor: async () => {},
+    click: async () => {
+      throw new Error('tooltip subtree intercepts pointer events forever');
+    }
+  };
+  const page = {
+    locator: () => locator,
+    keyboard: { press: async () => {} },
+    mouse: { move: async () => {} },
+    waitForTimeout: async () => {}
+  };
+
+  const result = await executeAiDecision(page, observation, {
+    mode: 'execute',
+    confidence: 0.9,
+    action: 'click',
+    targetRef: 'el_2'
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.fallbackReason, /AI click failed/);
+});
+
 test('shouldFallbackDecision rejects low confidence and risky missing targets', () => {
   assert.match(shouldFallbackDecision({
     mode: 'execute',
@@ -117,11 +193,19 @@ test('shouldFallbackDecision rejects low confidence and risky missing targets', 
 });
 
 test('createAiProvider constructs raw and langgraph providers', async () => {
-  const raw = await createAiProvider({ providerType: 'raw', apiKey: 'sk-test' });
-  const langgraph = await createAiProvider({ providerType: 'langgraph', apiKey: 'sk-test', model: 'gpt-test' });
+  const raw = await createAiProvider({ providerType: 'raw', apiKey: 'sk-test', timeout: 12345 });
+  const langgraph = await createAiProvider({ providerType: 'langgraph', apiKey: 'sk-test', model: 'gpt-test', timeout: 23456 });
   assert.equal(raw.type, 'raw');
+  assert.equal(raw.timeout, 12345);
   assert.equal(langgraph.type, 'langgraph');
+  assert.equal(langgraph.timeout, 23456);
   assert.throws(() => createAiProvider({ providerType: 'unknown' }), /Unsupported AI provider/);
+});
+
+test('resolveAiTimeout validates timeout values', () => {
+  assert.equal(resolveAiTimeout({ timeout: 5000 }), 5000);
+  assert.equal(resolveAiTimeout({ aiTimeout: 6000 }), 6000);
+  assert.equal(resolveAiTimeout({ timeout: -1 }), 180000);
 });
 
 test('normalizeAiDecision treats valid missing-confidence actions as implicit confidence', () => {

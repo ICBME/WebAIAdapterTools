@@ -10,7 +10,7 @@ import { writeCaptureArtifacts } from './artifacts.js';
 
 function printHelp() {
   console.log(`Usage:
-  pnpm collect <url> --out <dir> [--user-data-dir <dir>] [--interactive] [--record-action] [--ai-record-action] [--ai-goal <text>] [--ai-input <text>] [--ai-mode hybrid] [--ai-provider raw|langgraph] [--browser-controls] [--action-count 1] [--headless] [--timeout 60000] [--browser-path <path>] [--window-size 1280x720]
+  pnpm collect <url> --out <dir> [--user-data-dir <dir>] [--interactive] [--record-action] [--ai-record-action] [--ai-goal <text>] [--ai-input <text>] [--ai-mode hybrid] [--ai-provider raw|langgraph] [--ai-timeout 180000] [--browser-controls] [--action-count 1] [--headless] [--timeout 60000] [--browser-path <path>] [--window-size 1280x720]
 
 Examples:
   pnpm collect https://example.com/app --out captures/example
@@ -35,6 +35,7 @@ function parseArgs(argv) {
     aiInput: '',
     aiMode: 'hybrid',
     aiProvider: process.env.WEBADAPTERTOOLS_AI_PROVIDER || 'raw',
+    aiTimeout: Number(process.env.WEBADAPTERTOOLS_AI_TIMEOUT || 180000),
     aiMaxSteps: 8,
     aiModel: null,
     aiMinConfidence: 0.7,
@@ -69,6 +70,8 @@ function parseArgs(argv) {
       args.aiMode = argv[++i];
     } else if (arg === '--ai-provider') {
       args.aiProvider = argv[++i];
+    } else if (arg === '--ai-timeout') {
+      args.aiTimeout = Number(argv[++i]);
     } else if (arg === '--ai-max-steps') {
       args.aiMaxSteps = Number(argv[++i]);
     } else if (arg === '--ai-model') {
@@ -115,6 +118,9 @@ function parseArgs(argv) {
   }
   if (!['raw', 'langgraph'].includes(args.aiProvider)) {
     throw new Error('--ai-provider must be raw or langgraph');
+  }
+  if (!Number.isFinite(args.aiTimeout) || args.aiTimeout <= 0) {
+    throw new Error('--ai-timeout must be a positive number');
   }
   if (!Number.isInteger(args.aiMaxSteps) || args.aiMaxSteps <= 0) {
     throw new Error('--ai-max-steps must be a positive integer');
@@ -172,6 +178,7 @@ async function main() {
     aiInput: args.aiInput,
     aiMode: args.aiMode,
     aiProvider: args.aiProvider,
+    aiTimeout: args.aiTimeout,
     aiMaxSteps: args.aiMaxSteps,
     aiModel: args.aiModel,
     aiMinConfidence: args.aiMinConfidence,

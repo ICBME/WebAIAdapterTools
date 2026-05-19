@@ -36,6 +36,44 @@ function targetLocator(page, observation, targetRef, action) {
   };
 }
 
+function isPointerInterceptError(error) {
+  return /intercepts pointer events|receives pointer events|subtree intercepts pointer events|element is not stable|element is outside of the viewport/i.test(error?.message || '');
+}
+
+async function settle(page, ms = 250) {
+  if (typeof page.waitForTimeout === 'function') {
+    await page.waitForTimeout(ms).catch(() => {});
+    return;
+  }
+  await new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function dismissTransientOverlays(page) {
+  await page.keyboard?.press?.('Escape').catch(() => {});
+  await page.mouse?.move?.(1, 1).catch(() => {});
+  await settle(page, 250);
+}
+
+async function safeAiClick(page, locator, timeout) {
+  try {
+    await locator.click({ timeout });
+    return { retries: 0 };
+  } catch (error) {
+    if (!isPointerInterceptError(error)) throw error;
+    await dismissTransientOverlays(page);
+  }
+
+  try {
+    await locator.click({ timeout });
+    return { retries: 1 };
+  } catch (error) {
+    if (!isPointerInterceptError(error)) throw error;
+    await dismissTransientOverlays(page);
+    await locator.click({ timeout, force: true });
+    return { retries: 2, forced: true };
+  }
+}
+
 export function shouldFallbackDecision(decision, options = {}) {
   const minConfidence = Number(options.minConfidence ?? 0.7);
   if (!decision || typeof decision !== 'object') return 'AI decision is empty';
@@ -75,8 +113,12 @@ export async function executeAiDecision(page, observation, decision, options = {
   if (decision.action === 'click') {
     const { locator, element } = targetLocator(page, observation, decision.targetRef, 'click');
     await locator.waitFor({ state: 'visible', timeout });
-    await locator.click({ timeout });
-    return { ok: true, action: 'click', targetRef: element.idRef };
+    try {
+      const clickResult = await safeAiClick(page, locator, timeout);
+      return { ok: true, action: 'click', targetRef: element.idRef, ...clickResult };
+    } catch (error) {
+      return { ok: false, fallbackReason: `AI click failed for ${element.idRef}: ${compact(error.message, 300)}` };
+    }
   }
 
   if (decision.action === 'press') {
