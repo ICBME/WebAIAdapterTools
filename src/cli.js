@@ -10,12 +10,13 @@ import { writeCaptureArtifacts } from './artifacts.js';
 
 function printHelp() {
   console.log(`Usage:
-  pnpm collect <url> --out <dir> [--user-data-dir <dir>] [--interactive] [--record-action] [--ai-record-action] [--ai-goal <text>] [--ai-input <text>] [--ai-mode hybrid] [--ai-provider raw|langgraph] [--ai-timeout 180000] [--browser-controls] [--action-count 1] [--headless] [--timeout 60000] [--browser-path <path>] [--window-size 1280x720]
+  pnpm collect <url> --out <dir> [--user-data-dir <dir>] [--interactive] [--record-action] [--network-schema] [--ai-record-action] [--ai-goal <text>] [--ai-input <text>] [--ai-mode hybrid] [--ai-provider raw|langgraph] [--ai-timeout 180000] [--browser-controls] [--action-count 1] [--headless] [--timeout 60000] [--browser-path <path>] [--window-size 1280x720]
 
 Examples:
   pnpm collect https://example.com/app --out captures/example
   pnpm collect https://example.com/app --out captures/private --interactive --user-data-dir profiles/example
   pnpm collect https://example.com/app --out captures/action --record-action --user-data-dir profiles/example
+  pnpm collect https://example.com/app --out captures/action --record-action --network-schema --user-data-dir profiles/example
   pnpm collect https://example.com/app --out captures/ai-action --ai-record-action --ai-goal "send a message and wait for the response" --ai-input "hello"
   pnpm collect https://example.com/app --out captures/action --record-action --browser-controls --user-data-dir profiles/example
   pnpm collect https://example.com/app --out captures/action --record-action --action-count 3 --user-data-dir profiles/example
@@ -41,6 +42,7 @@ function parseArgs(argv) {
     aiMinConfidence: 0.7,
     browserControls: false,
     actionCount: null,
+    networkSchema: false,
     headless: false,
     timeout: 60000,
     browserPath: null,
@@ -84,6 +86,8 @@ function parseArgs(argv) {
       args.interactive = true;
     } else if (arg === '--action-count') {
       args.actionCount = Number(argv[++i]);
+    } else if (arg === '--network-schema') {
+      args.networkSchema = true;
     } else if (arg === '--headless') {
       args.headless = true;
     } else if (arg === '--timeout') {
@@ -184,6 +188,7 @@ async function main() {
     aiMinConfidence: args.aiMinConfidence,
     browserControls: args.browserControls,
     actionCount: args.actionCount || (args.browserControls ? 20 : 1),
+    networkSchema: args.networkSchema,
     waitForUser: (args.interactive || args.recordAction) ? waitForEnter : null
   });
 

@@ -25,7 +25,7 @@ function snapshotParts(snapshot) {
   };
 }
 
-function captureOptions({ headless, interactive, recordAction, browserControls, actionCount, timeout, userDataDir, browserPath, fixedWindow }) {
+function captureOptions({ headless, interactive, recordAction, browserControls, actionCount, timeout, userDataDir, browserPath, fixedWindow, networkSchema }) {
   return {
     headless,
     interactive,
@@ -33,6 +33,7 @@ function captureOptions({ headless, interactive, recordAction, browserControls, 
     browserControls,
     actionCount,
     timeout,
+    networkSchema,
     userDataDir,
     browserPath: browserPath || null,
     windowSize: { width: fixedWindow[0], height: fixedWindow[1] }
@@ -127,6 +128,7 @@ export async function collectPageProfile(options) {
     aiPlan = null,
     browserControls = false,
     actionCount = null,
+    networkSchema = false,
     waitForUser
   } = options;
 
@@ -151,7 +153,7 @@ export async function collectPageProfile(options) {
   try {
     const page = context.pages()[0] || await context.newPage();
     await page.setViewportSize({ width: fixedWindow[0], height: fixedWindow[1] }).catch(() => {});
-    const networkRecorder = attachNetworkRecorder(page);
+    const networkRecorder = attachNetworkRecorder(page, { captureSchema: networkSchema });
     const effectiveRecordAction = recordAction || aiRecordAction;
     const actionRecorder = effectiveRecordAction ? await installActionRecorder(page) : null;
     const controlPanel = browserControls ? await installBrowserControls(page) : null;
@@ -181,7 +183,8 @@ export async function collectPageProfile(options) {
       timeout,
       userDataDir,
       browserPath,
-      fixedWindow
+      fixedWindow,
+      networkSchema
     });
     const profile = await collectPageSnapshot(page, {
       initialUrl: sanitizeUrl(url),

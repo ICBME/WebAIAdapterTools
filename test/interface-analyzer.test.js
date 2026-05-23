@@ -96,6 +96,14 @@ test('buildInterfacePlan turns recorded action evidence into a browser interface
           resourceType: 'fetch',
           status: 200,
           failure: null,
+          requestSchema: {
+            format: 'json',
+            fields: [{ path: '$.prompt', type: 'string', count: 1 }]
+          },
+          responseSchema: {
+            format: 'sse',
+            dataJsonFields: [{ path: '$.message.content', type: 'string', count: 1 }]
+          },
           url: { origin: 'https://example.com', path: '/api/chat', queryKeys: [], display: 'https://example.com/api/chat' }
         },
         {
@@ -121,6 +129,8 @@ test('buildInterfacePlan turns recorded action evidence into a browser interface
   assert.equal(plan.operation.extractors[0].strategy, 'dom-text');
   assert.equal(plan.operation.errorDetectors.some(detector => detector.type === 'empty-output'), true);
   assert.equal(plan.networkCandidates[0].url.path, '/api/chat');
+  assert.equal(plan.networkCandidates[0].requestSchema.fields[0].path, '$.prompt');
+  assert.equal(plan.operation.waitSignals.find(signal => signal.type === 'network-stream').responseSchema.format, 'sse');
   assert.ok(plan.operation.confidence >= 80);
   assert.match(renderInterfaceMarkdown(plan), /Template: sse_text/);
   assert.match(renderInterfaceMarkdown(plan), /POST https:\/\/example.com\/api\/chat/);

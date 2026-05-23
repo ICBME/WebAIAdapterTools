@@ -23,6 +23,7 @@ pnpm collect https://example.com/app --out captures/example
 pnpm collect https://example.com/app --out captures/private --interactive --user-data-dir profiles/example
 pnpm collect https://example.com/app --out captures/example --headless --timeout 60000
 pnpm collect https://example.com/app --out captures/action --record-action --user-data-dir profiles/example
+pnpm collect https://example.com/app --out captures/action --record-action --network-schema --user-data-dir profiles/example
 pnpm collect https://example.com/app --out captures/ai-action --ai-record-action --ai-goal "send a message and wait for the response" --ai-input "hello"
 pnpm collect https://example.com/app --out captures/action --record-action --browser-controls --user-data-dir profiles/example
 pnpm collect https://example.com/app --out captures/action --record-action --action-count 3 --user-data-dir profiles/example
@@ -154,6 +155,8 @@ The JSON profile includes:
 - initial network summary with method, origin, path, query keys, resource type, status, and failure text
 
 Network headers, request bodies, response bodies, cookies, and query values are not captured.
+
+Pass `--network-schema` to opt in to structure-only payload analysis for JSON, SSE, NDJSON, and plain text responses. This mode records field paths, value types, string length ranges, payload hashes, content type, byte length, SSE event names, and `[DONE]` counts. It still does not store raw values, raw headers, cookies, authorization data, full request/response bodies, or query values.
 
 ## Manual Action Capture
 

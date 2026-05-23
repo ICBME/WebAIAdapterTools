@@ -349,6 +349,8 @@ function inferNetworkCandidates(bundle) {
       statuses: Array.from(group.statuses).sort((a, b) => a - b),
       failed: group.failed,
       score: scoreEndpoint(group, finalOrigin),
+      requestSchema: group.sample.requestSchema || null,
+      responseSchema: group.sample.responseSchema || null,
       evidence: 'Network data is sanitized: headers, request bodies, response bodies, cookies, and query values were not captured.'
     }))
     .filter(item => item.score > 0)
@@ -440,6 +442,8 @@ function inferWaitSignals(outputs, networkCandidates) {
       status: candidate.statuses?.[0] || null,
       resourceType: candidate.resourceType,
       score: candidate.score,
+      requestSchema: candidate.requestSchema || null,
+      responseSchema: candidate.responseSchema || null,
       source: 'sanitized-network'
     });
   }
