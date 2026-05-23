@@ -75,6 +75,7 @@ export function buildAiObservation(snapshot, options = {}) {
     schemaVersion: 'web-adapter-tools.ai-observation.v1',
     goal: options.goal || '',
     aiInput: options.aiInput || '',
+    adapterPlan: options.adapterPlan || null,
     mode: options.mode || 'hybrid',
     stepIndex: options.stepIndex || 1,
     maxSteps: options.maxSteps || 8,

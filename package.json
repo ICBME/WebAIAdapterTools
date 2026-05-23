@@ -11,6 +11,7 @@
     "collect": "node ./src/cli.js",
     "analyze": "node ./src/analyzeCli.js",
     "generate-adapter": "node ./src/generateAdapterCli.js",
+    "ai-generate-adapter": "node ./src/aiGenerateAdapterCli.js",
     "verify-adapter": "node ./src/verifyAdapterCli.js",
     "test": "node --test"
   },

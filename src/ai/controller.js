@@ -84,6 +84,7 @@ export async function runAiHybridAction(page, options = {}) {
       mode,
       stepIndex,
       maxSteps,
+      adapterPlan: options.adapterPlan || null,
       previousSteps: steps.slice(-6).map(step => ({
         index: step.index,
         actor: step.actor,

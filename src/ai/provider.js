@@ -35,6 +35,7 @@ Rules:
 - Never output JavaScript or Playwright code.
 - Select targets by idRef from the provided elements.
 - Always include confidence as a number between 0 and 1.
+- If adapterPlan is provided, follow its required operations and capture requirements. Treat optional operations as optional and safe-only.
 - Do not operate login, password, captcha, payment, purchase, delete, account, or authorization controls.
 - If targets are ambiguous, risky, hidden, disabled, or missing, use ask_user.
 - Use finish only when the requested result/output is visible or the goal is clearly complete.

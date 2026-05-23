@@ -124,6 +124,7 @@ export async function collectPageProfile(options) {
     aiMaxSteps = 8,
     aiModel = null,
     aiMinConfidence = 0.7,
+    aiPlan = null,
     browserControls = false,
     actionCount = null,
     waitForUser
@@ -208,13 +209,13 @@ export async function collectPageProfile(options) {
         const controllerLog = await runAiHybridAction(page, {
           goal: aiGoal,
           aiInput,
+          adapterPlan: aiPlan,
           mode: aiMode,
           providerType: aiProvider,
           timeout: aiTimeout,
           maxSteps: aiMaxSteps,
           model: aiModel,
           minConfidence: aiMinConfidence,
-          timeout,
           initialUrl: sanitizeUrl(url),
           captureOptions: baseOptions,
           controlPanel,

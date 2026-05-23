@@ -68,6 +68,21 @@ test('buildAdapterSource creates a WebAI2API manifest adapter', () => {
   assert.match(source, /page\.locator\("\[aria-label=/);
 });
 
+test('buildAdapterSource creates a WEB2WEB sidecar adapter', () => {
+  const source = buildAdapterSource(plan(), {
+    id: 'example_search_text',
+    model: 'example-search',
+    displayName: 'Example Search',
+    targetKind: 'web2web-sidecar'
+  });
+
+  assert.match(source, /import \{ gotoWithCheck, humanType, normalizeError, safeClick, sleep, waitForInput \} from '\.\.\/browser\/actions\.js'/);
+  assert.match(source, /export async function generate\(ctx, req = \{\}\)/);
+  assert.match(source, /export async function preload\(ctx, options = \{\}\)/);
+  assert.match(source, /export const manifest/);
+  assert.doesNotMatch(source, /adapter_runtime\/templateRunner/);
+});
+
 test('writeAdapterFromCapture writes importable adapter file', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'web-adapter-tools-generated-target-'));
   const capture = await fs.mkdtemp(path.join(os.tmpdir(), 'web-adapter-tools-generated-capture-'));
@@ -91,6 +106,64 @@ test('writeAdapterFromCapture writes importable adapter file', async () => {
   assert.match(result.configSnippet, /type: example_search_text/);
 });
 
+test('writeAdapterFromCapture writes importable WEB2WEB sidecar adapter file', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'web-adapter-tools-generated-sidecar-target-'));
+  const capture = await fs.mkdtemp(path.join(os.tmpdir(), 'web-adapter-tools-generated-sidecar-capture-'));
+  await fs.mkdir(path.join(root, 'sidecar/src/browser'), { recursive: true });
+  await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({ type: 'module' }), 'utf8');
+  await fs.writeFile(path.join(root, 'sidecar/src/browser/actions.js'), `
+export async function gotoWithCheck(page, url) { page.gotoUrl = url; }
+export async function waitForInput() {}
+export async function safeClick() {}
+export async function humanType(page, target, text) { page.typed = text; target.typed = text; }
+export async function sleep() {}
+export function normalizeError(err, stage) { return { error: err.message, stage }; }
+`, 'utf8');
+  await fs.writeFile(path.join(capture, 'interface.json'), JSON.stringify(plan()), 'utf8');
+
+  const result = await writeAdapterFromCapture(capture, {
+    target: root,
+    id: 'example_search_text',
+    model: 'example-search',
+    targetKind: 'web2web-sidecar'
+  });
+
+  assert.equal(result.adapterPath, path.join(root, 'sidecar/src/adapters/example_search_text.js'));
+  assert.equal(result.targetKind, 'web2web-sidecar');
+  const module = await import(pathToFileURL(result.adapterPath).href);
+  assert.equal(module.manifest.id, 'example_search_text');
+  assert.equal(typeof module.generate, 'function');
+  assert.equal(typeof module.preload, 'function');
+
+  const inputLocator = {
+    first() { return this; },
+    fill() {},
+    pressKey: '',
+    async press(key) { this.pressKey = key; },
+    async waitFor() {},
+    async innerText() { return ''; }
+  };
+  const outputLocator = {
+    first() { return this; },
+    async waitFor() {},
+    async innerText() { return 'ok'; }
+  };
+  const page = {
+    getByRole() { return inputLocator; },
+    locator() { return outputLocator; },
+    keyboard: {
+      async down() {},
+      async press() {},
+      async up() {}
+    }
+  };
+
+  assert.deepEqual(await module.generate({ page }, { prompt: 'hello', model: 'example-search' }), { text: 'ok' });
+  assert.equal(page.gotoUrl, 'https://example.com/');
+  assert.equal(page.typed, 'hello');
+  assert.match(result.configSnippet, /"type": "example_search_text"/);
+});
+
 test('buildAdapterSource rejects unsafe locator expressions', () => {
   const unsafe = plan();
   unsafe.operation.inputs[0].locator.value = 'process.exit(1)';
@@ -102,4 +175,14 @@ test('buildWorkerConfigSnippet creates a WebAI2API worker example', () => {
   assert.match(snippet, /name: "example_worker"/);
   assert.match(snippet, /type: example_search_text/);
   assert.match(snippet, /instances:/);
+});
+
+test('buildWorkerConfigSnippet creates a WEB2WEB JSON worker example', () => {
+  const snippet = buildWorkerConfigSnippet('example_search_text', {
+    workerName: 'example_worker',
+    targetKind: 'web2web-sidecar'
+  });
+  assert.match(snippet, /"name": "example_worker"/);
+  assert.match(snippet, /"type": "example_search_text"/);
+  assert.doesNotMatch(snippet, /type: example_search_text/);
 });

@@ -5,10 +5,11 @@ import { writeAdapterFromCapture } from './adapterGenerator.js';
 
 function printHelp() {
   console.log(`Usage:
-  pnpm generate-adapter <capture-dir> --target <WebAI2API-dir> --id <adapter_id> [--model <model-id>] [--display-name <name>] [--worker-name <name>] [--template search_text]
+  pnpm generate-adapter <capture-dir> --target <WebAI2API-dir> --id <adapter_id> [--target-kind webai2api|web2web-sidecar] [--model <model-id>] [--display-name <name>] [--worker-name <name>] [--template search_text]
 
 Examples:
   pnpm generate-adapter captures/action --target ../WebAI2API --id bing_search_text --model bing-search --display-name "Bing Search"
+  pnpm generate-adapter captures/action --target ../server --target-kind web2web-sidecar --id bing_search_text --model bing-search --display-name "Bing Search"
 `);
 }
 
@@ -22,6 +23,7 @@ function parseArgs(argv) {
     workerName: null,
     template: null,
     targetUrl: null,
+    targetKind: 'webai2api',
     help: false
   };
 
@@ -43,6 +45,8 @@ function parseArgs(argv) {
       args.template = argv[++i];
     } else if (arg === '--target-url') {
       args.targetUrl = argv[++i];
+    } else if (arg === '--target-kind') {
+      args.targetKind = argv[++i];
     } else if (arg.startsWith('--')) {
       throw new Error(`Unknown option: ${arg}`);
     } else if (!args.captureDir) {
@@ -73,16 +77,18 @@ async function main() {
     displayName: args.displayName,
     workerName: args.workerName,
     template: args.template,
-    targetUrl: args.targetUrl
+    targetUrl: args.targetUrl,
+    targetKind: args.targetKind
   });
 
   console.log(`Adapter written:
   ${result.adapterPath}
 
+Target kind: ${result.targetKind}
 Adapter id: ${result.adapterId}
 Model id: ${result.modelId}
 
-Configure WebAI2API worker type as:
+Configure worker type as:
   type: ${result.adapterId}
 
 Config snippet:

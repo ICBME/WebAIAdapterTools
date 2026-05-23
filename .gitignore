@@ -1,6 +1,8 @@
 node_modules/
 .profiles/
 captures/
+userdata/
+data/logs/
 *.log
 pnpm-lock.yaml
 pnpm-workspace.yaml

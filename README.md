@@ -70,10 +70,10 @@ The analyzer reads `profile.json` and the referenced page, recommendation, actio
 
 The generated interface plan is intentionally conservative. Because the network recorder does not store headers, request bodies, response bodies, cookies, or query values, the analyzer does not claim to reproduce private HTTP APIs. It ranks sanitized network candidates as evidence and generates a browser-driven adapter plan from selectors and recorded user action metadata.
 
-## Generate A WebAI2API Adapter
+## Generate An Adapter
 
 ```bash
-pnpm generate-adapter <capture-dir> --target <WebAI2API-dir> --id <adapter_id> [--model <model-id>] [--display-name <name>] [--worker-name <name>]
+pnpm generate-adapter <capture-dir> --target <WebAI2API-dir> --id <adapter_id> [--target-kind webai2api|web2web-sidecar] [--model <model-id>] [--display-name <name>] [--worker-name <name>]
 ```
 
 Example:
@@ -81,9 +81,12 @@ Example:
 ```bash
 pnpm analyze captures/action
 pnpm generate-adapter captures/action --target ../WebAI2API --id bing_search_text --model bing-search --display-name "Bing Search"
+pnpm generate-adapter captures/action --target ../server --target-kind web2web-sidecar --id bing_search_text --model bing-search --display-name "Bing Search"
 ```
 
 The first generator version targets browser-driven text adapters using the `search_text` template. It creates a thin adapter file under `WebAI2API/src/backend/adapter/` and expects the WebAI2API template runtime to perform the shared browser flow:
+
+When `--target-kind web2web-sidecar` is used, the generator writes a WEB2WEB sidecar adapter under `server/sidecar/src/adapters/`. The generated module exports `manifest`, `preload(ctx, options)`, and `generate(ctx, req)`, matching the sidecar registry contract.
 
 - open target URL
 - fill the recorded text input with the OpenAI prompt
@@ -231,6 +234,67 @@ pnpm collect https://example.com/app \
 ```
 
 AI-assisted captures write the normal `events/diff/network` files plus `actions/segments/<action-id>/controller.json`, which records AI decisions, human fallback instructions, and completion status.
+
+## AI Adapter Generation Workflow
+
+Use `pnpm ai-generate-adapter` to run the full WebAI2API adapter workflow in one command:
+
+```bash
+WEBADAPTERTOOLS_AI_API_KEY=sk-... \
+pnpm ai-generate-adapter https://example.com/app \
+  --out captures/example-ai \
+  --target ../WebAI2API \
+  --id example_text \
+  --plan webai2api-chatgpt-reference \
+  --ai-input "hello" \
+  --ai-provider langgraph \
+  --ai-mode hybrid \
+  --browser-controls
+```
+
+The workflow follows the common pattern used by adapters such as `chatgpt.js` and `chatgpt_text.js`:
+
+- Open target page via target URL.
+- Wait for the main input surface.
+- Apply optional setup such as model selection or upload handling.
+- Fill and submit the prompt.
+- Wait for a reliable output signal, such as DOM result, SSE/API response, or generated file/download status.
+- Extract `{ text }`, `{ image }`, or `{ error }`.
+- Write a manifest with `id`, `models`, `getTargetUrl`, `navigationHandlers`, and `generate`.
+
+The built-in `webai2api-chatgpt-reference` plan is derived from `WebAI2API/src/backend/adapter/chatgpt.js` and `chatgpt_text.js`. It summarizes the required WebAI2API interfaces, model-selection branch, upload branch, prompt submission, SSE/text extraction, image download extraction, and failure detection. The command injects the compact plan into AI capture so the AI can complete safe operations itself and ask for human assistance when a required step is ambiguous or risky. The full generated plan is written to `adapter-plan.json` and `adapter-plan.md`.
+
+The command runs:
+
+```text
+AI action capture -> analyze capture -> generate adapter -> optional verify
+```
+
+Generated review files:
+
+- `adapter-workflow.json`
+- `adapter-workflow.md`
+- `adapter-plan.json`
+- `adapter-plan.md`
+- normal capture files, `interface.json`, `interface.md`
+- `WebAI2API/src/backend/adapter/<adapter_id>.js`
+
+Add `--verify` to immediately run the generated adapter:
+
+```bash
+pnpm ai-generate-adapter https://bing.com \
+  --out captures/bing-ai \
+  --target ../WebAI2API \
+  --id bing_search_text \
+  --plan webai2api-chatgpt-reference \
+  --ai-goal "search for the test query and wait for results" \
+  --ai-input "test query" \
+  --ai-provider langgraph \
+  --browser-controls \
+  --verify \
+  --visual-verify \
+  --visual-out captures/bing-ai/verify
+```
 
 Typical workflow:
 
