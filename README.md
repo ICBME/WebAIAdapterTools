@@ -65,10 +65,18 @@ pnpm analyze captures/action --out captures/action/interface
 
 The analyzer reads `profile.json` and the referenced page, recommendation, action event, DOM diff, and network files. It writes:
 
-- `interface.json`: machine-readable browser automation interface plan with inferred inputs, submit action, output extraction, replay steps, confidence, warnings, and network endpoint candidates.
+- `interface.json`: machine-readable browser automation interface plan with inferred inputs, submit action, replay steps, setup steps, wait signals, extractors, error detectors, confidence, warnings, and network endpoint candidates.
 - `interface.md`: short human-readable review summary.
 
 The generated interface plan is intentionally conservative. Because the network recorder does not store headers, request bodies, response bodies, cookies, or query values, the analyzer does not claim to reproduce private HTTP APIs. It ranks sanitized network candidates as evidence and generates a browser-driven adapter plan from selectors and recorded user action metadata.
+
+The current IR schema is `web-adapter-tools.interface-plan.v2`. It keeps the old `operation.inputs`, `operation.submit`, `operation.outputs`, and `operation.steps` fields, and adds:
+
+- `operation.template`: one of `search_text`, `dom_text`, `conversation_text`, `sse_text`, `upload_text`, or `download_image`.
+- `operation.setupSteps`: optional pre-submit setup such as file upload.
+- `operation.waitSignals`: DOM, network response, stream, or network-idle completion evidence.
+- `operation.extractors`: DOM text, DOM image URL, or fallback extraction plans.
+- `operation.errorDetectors`: empty-output, page-error, auth/verification, and similar terminal-state hints.
 
 ## Generate An Adapter
 
@@ -84,7 +92,7 @@ pnpm generate-adapter captures/action --target ../WebAI2API --id bing_search_tex
 pnpm generate-adapter captures/action --target ../server --target-kind web2web-sidecar --id bing_search_text --model bing-search --display-name "Bing Search"
 ```
 
-The first generator version targets browser-driven text adapters using the `search_text` template. It creates a thin adapter file under `WebAI2API/src/backend/adapter/` and expects the WebAI2API template runtime to perform the shared browser flow:
+The generator targets browser-driven adapters using template specs. It creates a thin adapter file under `WebAI2API/src/backend/adapter/` and expects the WebAI2API template runtime to perform the shared browser flow:
 
 When `--target-kind web2web-sidecar` is used, the generator writes a WEB2WEB sidecar adapter under `server/sidecar/src/adapters/`. The generated module exports `manifest`, `preload(ctx, options)`, and `generate(ctx, req)`, matching the sidecar registry contract.
 
@@ -93,6 +101,13 @@ When `--target-kind web2web-sidecar` is used, the generator writes a WEB2WEB sid
 - submit with the recorded action
 - wait for the recorded output region
 - return extracted text
+
+Template support:
+
+- `search_text`, `dom_text`, `conversation_text`: fill prompt, submit, wait for DOM output, return `{ text }`.
+- `sse_text`: starts a sanitized network wait around submit when a matching network signal exists, then extracts final DOM text. It does not parse private SSE bodies unless a future opt-in body/schema capture mode supplies that evidence.
+- `upload_text`: uses the first inferred upload binding with `imgPaths`/`imagePaths`, then returns DOM text.
+- `download_image`: extracts an image URL from the DOM. WebAI2API attempts browser-context download and returns `{ image, imageUrl }`; WEB2WEB sidecar returns `{ imageUrl }`.
 
 After generation, set a WebAI2API worker `type` to the generated adapter id, for example `type: bing_search_text`.
 

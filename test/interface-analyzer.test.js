@@ -110,12 +110,19 @@ test('buildInterfacePlan turns recorded action evidence into a browser interface
   };
 
   const plan = buildInterfacePlan(bundle);
+  assert.equal(plan.schemaVersion, 'web-adapter-tools.interface-plan.v2');
   assert.equal(plan.operation.name, 'send_message');
+  assert.equal(plan.operation.template, 'sse_text');
   assert.equal(plan.operation.inputs[0].name, 'prompt');
   assert.equal(plan.operation.submit.source, 'recorded-submit');
   assert.equal(plan.operation.outputs[0].preview, 'Answered.');
+  assert.equal(plan.operation.waitSignals.some(signal => signal.type === 'dom-visible'), true);
+  assert.equal(plan.operation.waitSignals.some(signal => signal.type === 'network-stream'), true);
+  assert.equal(plan.operation.extractors[0].strategy, 'dom-text');
+  assert.equal(plan.operation.errorDetectors.some(detector => detector.type === 'empty-output'), true);
   assert.equal(plan.networkCandidates[0].url.path, '/api/chat');
   assert.ok(plan.operation.confidence >= 80);
+  assert.match(renderInterfaceMarkdown(plan), /Template: sse_text/);
   assert.match(renderInterfaceMarkdown(plan), /POST https:\/\/example.com\/api\/chat/);
 });
 
@@ -149,7 +156,8 @@ test('loadCaptureBundle and writeInterfaceArtifacts support capture directories'
   await writeInterfaceArtifacts(plan, captureDir);
 
   const written = JSON.parse(await fs.readFile(path.join(captureDir, 'interface.json'), 'utf8'));
-  assert.equal(written.schemaVersion, 'web-adapter-tools.interface-plan.v1');
+  assert.equal(written.schemaVersion, 'web-adapter-tools.interface-plan.v2');
   assert.equal(written.operation.name, 'search');
+  assert.equal(written.operation.template, 'search_text');
   assert.ok(await fs.readFile(path.join(captureDir, 'interface.md'), 'utf8'));
 });

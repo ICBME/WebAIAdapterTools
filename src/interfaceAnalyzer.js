@@ -6,6 +6,7 @@ const JSON_SPACE = 2;
 const ACTION_RESOURCE_TYPES = new Set(['xhr', 'fetch', 'document']);
 const TRACKING_PATTERN = /\b(telemetry|analytics|beacon|collect|events?|log|lsp|fd\/ls|pixel|metrics|rewards?|identity|idtoken)\b/i;
 const ACTION_ENDPOINT_PATTERN = /\b(api|chat|completion|conversation|message|search|query|generate|graphql|rpc|stream|submit)\b/i;
+const STREAM_ENDPOINT_PATTERN = /\b(sse|stream|conversation|completion|chat|message|generate)\b/i;
 
 function jsString(value) {
   return JSON.stringify(String(value || ''));
@@ -405,6 +406,99 @@ function buildSteps(bundle, inputs, uploads, submit, outputs) {
   return steps;
 }
 
+function inferSetupSteps(uploads) {
+  return uploads.map(upload => ({
+    type: 'upload',
+    name: upload.name,
+    locator: upload.locator,
+    valueFrom: `inputs.${upload.name}`,
+    required: upload.required,
+    source: upload.source,
+    evidence: upload.evidence || null
+  }));
+}
+
+function inferWaitSignals(outputs, networkCandidates) {
+  const signals = [];
+  const output = outputs[0];
+  if (output?.locator) {
+    signals.push({
+      type: 'dom-visible',
+      name: output.name,
+      locator: output.locator,
+      source: output.source,
+      timeoutMs: 120000
+    });
+  }
+
+  for (const candidate of networkCandidates.slice(0, 3)) {
+    if (candidate.score < 45) continue;
+    signals.push({
+      type: STREAM_ENDPOINT_PATTERN.test(candidate.url?.path || '') ? 'network-stream' : 'network-response',
+      method: candidate.method,
+      url: candidate.url,
+      status: candidate.statuses?.[0] || null,
+      resourceType: candidate.resourceType,
+      score: candidate.score,
+      source: 'sanitized-network'
+    });
+  }
+
+  if (!signals.length) {
+    signals.push({
+      type: 'networkidle',
+      source: 'fallback',
+      timeoutMs: 120000
+    });
+  }
+  return signals;
+}
+
+function inferExtractors(outputs, operationName) {
+  const extractors = outputs.map((output, index) => ({
+    name: output.name || (index === 0 ? 'result' : `result_${index + 1}`),
+    type: output.type || 'text',
+    strategy: output.type === 'image' ? 'dom-image-url' : 'dom-text',
+    locator: output.locator,
+    extract: output.extract || (output.type === 'image' ? 'attribute:src' : 'innerText'),
+    source: output.source,
+    preview: output.preview || ''
+  }));
+
+  if (!extractors.length && operationName === 'generate') {
+    extractors.push({
+      name: 'result',
+      type: 'text',
+      strategy: 'manual-review',
+      extract: 'innerText',
+      source: 'fallback'
+    });
+  }
+  return extractors;
+}
+
+function inferErrorDetectors(bundle) {
+  const detectors = [
+    { type: 'empty-output', retryable: false },
+    { type: 'page-error', retryable: true }
+  ];
+  const pageText = `${bundle.activePage?.title || ''} ${bundle.activePage?.textStats?.preview || ''}`;
+  if (/\b(login|sign in|captcha|verify|verification)\b|登录|验证码|验证/i.test(pageText)) {
+    detectors.push({ type: 'auth-or-verification-visible', retryable: false });
+  }
+  return detectors;
+}
+
+function inferTemplate({ operationName, uploads, outputs, networkCandidates }) {
+  if (outputs.some(output => output.type === 'image')) return 'download_image';
+  if (uploads.length) return 'upload_text';
+  const topNetwork = networkCandidates[0];
+  if (topNetwork && topNetwork.score >= 70 && STREAM_ENDPOINT_PATTERN.test(topNetwork.url?.path || '')) return 'sse_text';
+  if (operationName === 'send_message') return 'conversation_text';
+  if (operationName === 'search') return 'search_text';
+  return 'dom_text';
+}
+
 function confidenceScore({ inputs, uploads, submit, outputs, networkCandidates, bundle }) {
   let score = 30;
   if ((bundle.actionEvents?.events || []).length) score += 20;
@@ -438,10 +532,15 @@ export function buildInterfacePlan(bundle) {
   const networkCandidates = inferNetworkCandidates(bundle);
   const operationName = inferOperationName(bundle, inputs);
   const steps = buildSteps(bundle, inputs, uploads, submit, outputs);
+  const setupSteps = inferSetupSteps(uploads);
+  const waitSignals = inferWaitSignals(outputs, networkCandidates);
+  const extractors = inferExtractors(outputs, operationName);
+  const errorDetectors = inferErrorDetectors(bundle);
+  const template = inferTemplate({ operationName, uploads, outputs, networkCandidates });
   const confidence = confidenceScore({ inputs, uploads, submit, outputs, networkCandidates, bundle });
 
   return {
-    schemaVersion: 'web-adapter-tools.interface-plan.v1',
+    schemaVersion: 'web-adapter-tools.interface-plan.v2',
     source: {
       capturedAt: bundle.profile?.capture?.capturedAt || null,
       initialUrl: bundle.profile?.capture?.initialUrl || null,
@@ -451,11 +550,16 @@ export function buildInterfacePlan(bundle) {
     operation: {
       name: operationName,
       transport: 'browser',
+      template,
       confidence,
       inputs: [...inputs, ...uploads],
       outputs,
       submit,
-      steps
+      steps,
+      setupSteps,
+      waitSignals,
+      extractors,
+      errorDetectors
     },
     networkCandidates,
     warnings: warningsFor(bundle, inputs, submit, outputs),
@@ -509,6 +613,7 @@ export function renderInterfaceMarkdown(plan) {
   lines.push(`# ${plan.operation.name}`);
   lines.push('');
   lines.push(`Transport: ${plan.operation.transport}`);
+  if (plan.operation.template) lines.push(`Template: ${plan.operation.template}`);
   lines.push(`Confidence: ${plan.operation.confidence}/100`);
   lines.push('');
   lines.push('## Inputs');
@@ -530,6 +635,25 @@ export function renderInterfaceMarkdown(plan) {
   if (plan.operation.outputs.length) {
     for (const output of plan.operation.outputs) {
       lines.push(`- \`${output.name}\` (${output.type}): ${output.locator?.value || 'no locator'}`);
+    }
+  } else {
+    lines.push('- None inferred.');
+  }
+  lines.push('');
+  lines.push('## Wait Signals');
+  if (plan.operation.waitSignals?.length) {
+    for (const signal of plan.operation.waitSignals) {
+      const detail = signal.locator?.value || signal.url?.display || signal.type;
+      lines.push(`- ${signal.type}: ${detail}`);
+    }
+  } else {
+    lines.push('- None inferred.');
+  }
+  lines.push('');
+  lines.push('## Extractors');
+  if (plan.operation.extractors?.length) {
+    for (const extractor of plan.operation.extractors) {
+      lines.push(`- \`${extractor.name}\` (${extractor.type}, ${extractor.strategy}): ${extractor.locator?.value || extractor.extract || ''}`);
     }
   } else {
     lines.push('- None inferred.');

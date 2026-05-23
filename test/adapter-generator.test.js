@@ -54,6 +54,14 @@ function plan() {
   };
 }
 
+function v2Plan(template, extra = {}) {
+  const base = plan();
+  base.schemaVersion = 'web-adapter-tools.interface-plan.v2';
+  base.operation.template = template;
+  Object.assign(base.operation, extra);
+  return base;
+}
+
 test('buildAdapterSource creates a WebAI2API manifest adapter', () => {
   const source = buildAdapterSource(plan(), {
     id: 'example_search_text',
@@ -63,7 +71,7 @@ test('buildAdapterSource creates a WebAI2API manifest adapter', () => {
 
   assert.match(source, /export const manifest/);
   assert.match(source, /id: 'example_search_text'|"example_search_text"/);
-  assert.match(source, /template: "search_text"/);
+  assert.match(source, /"template": "search_text"/);
   assert.match(source, /page\.getByRole\("textbox"/);
   assert.match(source, /page\.locator\("\[aria-label=/);
 });
@@ -76,11 +84,75 @@ test('buildAdapterSource creates a WEB2WEB sidecar adapter', () => {
     targetKind: 'web2web-sidecar'
   });
 
-  assert.match(source, /import \{ gotoWithCheck, humanType, normalizeError, safeClick, sleep, waitForInput \} from '\.\.\/browser\/actions\.js'/);
+  assert.match(source, /import \{ gotoWithCheck, humanType, normalizeError, safeClick, sleep, uploadFilesViaChooser, waitForInput \} from '\.\.\/browser\/actions\.js'/);
   assert.match(source, /export async function generate\(ctx, req = \{\}\)/);
   assert.match(source, /export async function preload\(ctx, options = \{\}\)/);
   assert.match(source, /export const manifest/);
   assert.doesNotMatch(source, /adapter_runtime\/templateRunner/);
+});
+
+test('buildAdapterSource carries v2 IR template fields into generated specs', () => {
+  const uploadPlan = v2Plan('upload_text', {
+    inputs: [
+      ...plan().operation.inputs,
+      {
+        name: 'file',
+        type: 'file',
+        required: false,
+        locator: {
+          value: 'page.getByRole("button", { name: "Upload" })',
+          confidence: 0.9
+        }
+      }
+    ],
+    waitSignals: [
+      {
+        type: 'network-response',
+        method: 'POST',
+        url: { path: '/api/upload', display: 'https://example.com/api/upload' }
+      }
+    ],
+    extractors: [
+      {
+        name: 'result',
+        type: 'text',
+        strategy: 'dom-text',
+        extract: 'innerText'
+      }
+    ]
+  });
+  const source = buildAdapterSource(uploadPlan, { id: 'upload_text_adapter' });
+  assert.match(source, /"template": "upload_text"/);
+  assert.match(source, /"imagePolicy": "optional"/);
+  assert.match(source, /uploads: \[/);
+  assert.match(source, /page\.getByRole\("button", \{ name: "Upload" \}\)/);
+  assert.match(source, /"waitSignals": \[/);
+
+  const imagePlan = v2Plan('download_image', {
+    outputs: [
+      {
+        name: 'image',
+        type: 'image',
+        extract: 'attribute:src',
+        locator: {
+          value: 'page.locator("img.result")',
+          confidence: 0.8
+        }
+      }
+    ],
+    extractors: [
+      {
+        name: 'image',
+        type: 'image',
+        strategy: 'dom-image-url',
+        extract: 'attribute:src'
+      }
+    ]
+  });
+  const imageSource = buildAdapterSource(imagePlan, { id: 'image_adapter' });
+  assert.match(imageSource, /"template": "download_image"/);
+  assert.match(imageSource, /"type": "image"/);
+  assert.match(imageSource, /attribute:src/);
 });
 
 test('writeAdapterFromCapture writes importable adapter file', async () => {
@@ -117,6 +189,7 @@ export async function waitForInput() {}
 export async function safeClick() {}
 export async function humanType(page, target, text) { page.typed = text; target.typed = text; }
 export async function sleep() {}
+export async function uploadFilesViaChooser() {}
 export function normalizeError(err, stage) { return { error: err.message, stage }; }
 `, 'utf8');
   await fs.writeFile(path.join(capture, 'interface.json'), JSON.stringify(plan()), 'utf8');

@@ -4,6 +4,14 @@ import { buildInterfacePlan, loadCaptureBundle } from './interfaceAnalyzer.js';
 
 const DEFAULT_MODEL_ID = 'generated-browser-text';
 const TARGET_KINDS = new Set(['webai2api', 'web2web-sidecar']);
+const SUPPORTED_TEMPLATES = new Set([
+  'search_text',
+  'dom_text',
+  'conversation_text',
+  'sse_text',
+  'upload_text',
+  'download_image'
+]);
 const LOCATOR_PREFIXES = [
   'page.getByRole(',
   'page.locator(',
@@ -57,25 +65,28 @@ function inferTargetUrl(plan) {
 
 function inferTemplate(plan, requested) {
   if (requested) return requested;
+  if (plan.operation?.template) return plan.operation.template;
   if (plan.operation?.name === 'search') return 'search_text';
-  return 'search_text';
+  if (plan.operation?.name === 'send_message') return 'conversation_text';
+  return 'dom_text';
 }
 
 function validatePlan(plan, options = {}) {
-  if (plan?.schemaVersion !== 'web-adapter-tools.interface-plan.v1') {
+  if (!['web-adapter-tools.interface-plan.v1', 'web-adapter-tools.interface-plan.v2'].includes(plan?.schemaVersion)) {
     throw new Error('interface.json schemaVersion 不正确');
   }
   if (plan.operation?.transport !== 'browser') {
     throw new Error('第一版生成器仅支持 browser transport');
   }
   const template = inferTemplate(plan, options.template);
-  if (template !== 'search_text') {
-    throw new Error(`第一版生成器仅支持 search_text 模板，收到: ${template}`);
+  if (!SUPPORTED_TEMPLATES.has(template)) {
+    throw new Error(`不支持的模板: ${template}. 可选值: ${Array.from(SUPPORTED_TEMPLATES).join(', ')}`);
   }
   const input = plan.operation?.inputs?.find(item => item.type === 'string');
-  const output = plan.operation?.outputs?.find(item => item.type === 'text');
+  const output = plan.operation?.outputs?.find(item => item.type === 'text' || item.type === 'image') ||
+    plan.operation?.extractors?.find(item => item.type === 'text' || item.type === 'image');
   if (!input) throw new Error('interface plan 缺少文本输入');
-  if (!output) throw new Error('interface plan 缺少文本输出');
+  if (!output) throw new Error('interface plan 缺少输出提取器');
   if (!plan.operation?.submit) throw new Error('interface plan 缺少提交动作');
   return { template, input, output, submit: plan.operation.submit };
 }
@@ -119,6 +130,7 @@ function submitBindingCode(submit, inputLocatorExpression) {
 
 function buildAdapterSpec(plan, options = {}) {
   const { template, input, output, submit } = validatePlan(plan, options);
+  const uploads = (plan.operation?.inputs || []).filter(item => item.type === 'file');
   const adapterId = sanitizeIdentifier(options.id || `${plan.operation.name || 'generated'}_text`);
   const modelId = compact(options.model || DEFAULT_MODEL_ID, 80);
   const displayName = compact(options.displayName || adapterId.replace(/_/g, ' '), 120);
@@ -128,8 +140,16 @@ function buildAdapterSpec(plan, options = {}) {
   if (!targetUrl) throw new Error('无法推断 targetUrl');
 
   const inputLocator = assertSafeLocatorExpression(input.locator?.value, 'input');
-  const outputLocator = assertSafeLocatorExpression(output.locator?.value, 'output');
+  const outputLocator = output.locator?.value ? assertSafeLocatorExpression(output.locator.value, 'output') : '';
+  const uploadLocators = uploads
+    .filter(upload => upload.locator?.value)
+    .map(upload => ({
+      ...upload,
+      locatorExpression: assertSafeLocatorExpression(upload.locator.value, `upload:${upload.name || 'file'}`)
+    }));
   const submitCode = submitBindingCode(submit, inputLocator);
+  const modelType = template === 'download_image' ? 'image' : 'text';
+  const imagePolicy = template === 'upload_text' ? 'optional' : template === 'download_image' ? 'forbidden' : 'forbidden';
 
   return {
     adapterId,
@@ -142,9 +162,40 @@ function buildAdapterSpec(plan, options = {}) {
     outputLocator,
     submit,
     submitCode,
+    imagePolicy,
+    modelType,
+    setupSteps: plan.operation?.setupSteps || [],
     targetUrl,
-    template
+    template,
+    uploadLocators,
+    waitSignals: plan.operation?.waitSignals || [],
+    extractors: plan.operation?.extractors || []
   };
+}
+
+function serializableSpec(spec) {
+  return {
+    id: spec.adapterId,
+    template: spec.template,
+    targetUrl: spec.targetUrl,
+    models: [
+      { id: spec.modelId, imagePolicy: spec.imagePolicy, type: spec.modelType }
+    ],
+    waitSignals: spec.waitSignals,
+    extractors: spec.extractors,
+    setupSteps: spec.setupSteps
+  };
+}
+
+function uploadBindingCode(uploadLocators) {
+  if (!uploadLocators.length) return '[]';
+  return `[
+${uploadLocators.map(upload => `            {
+                name: ${jsString(upload.name || 'file')},
+                required: ${upload.required ? 'true' : 'false'},
+                locator: ${locatorFunctionCode(upload.locatorExpression)}
+            }`).join(',\n')}
+        ]`;
 }
 
 function buildWebAI2APISource(plan, options = {}) {
@@ -158,22 +209,18 @@ function buildWebAI2APISource(plan, options = {}) {
 import { runTemplate } from '../adapter_runtime/templateRunner.js';
 
 const spec = {
-    id: ${jsString(spec.adapterId)},
-    template: ${jsString(spec.template)},
-    targetUrl: ${jsString(spec.targetUrl)},
-    models: [
-        { id: ${jsString(spec.modelId)}, imagePolicy: 'forbidden', type: 'text' }
-    ],
+    ...${JSON.stringify(serializableSpec(spec), null, 4)},
     bindings: {
         input: {
             name: ${jsString(spec.input.name || 'prompt')},
             valueFrom: 'prompt',
             locator: ${locatorFunctionCode(spec.inputLocator)}
         },
+        uploads: ${uploadBindingCode(spec.uploadLocators)},
         submit: ${spec.submitCode},
         output: {
             extract: ${jsString(spec.output.extract || 'innerText')},
-            locator: ${locatorFunctionCode(spec.outputLocator)}
+            locator: ${spec.outputLocator ? locatorFunctionCode(spec.outputLocator) : 'null'}
         }
     }
 };
@@ -227,23 +274,21 @@ function buildWeb2WebSidecarSource(plan, options = {}) {
  * @generated by WebAdapterTools
  */
 
-import { gotoWithCheck, humanType, normalizeError, safeClick, sleep, waitForInput } from '../browser/actions.js';
+import { gotoWithCheck, humanType, normalizeError, safeClick, sleep, uploadFilesViaChooser, waitForInput } from '../browser/actions.js';
 
 const TARGET_URL = ${jsString(spec.targetUrl)};
 
 const spec = {
-  id: ${jsString(spec.adapterId)},
+  ...${JSON.stringify(serializableSpec(spec), null, 2)},
   targetUrl: TARGET_URL,
-  models: [
-    { id: ${jsString(spec.modelId)}, imagePolicy: 'forbidden', type: 'text' }
-  ],
   bindings: {
     input: {
       locator: ${locatorFunctionCode(spec.inputLocator)}
     },
+    uploads: ${uploadBindingCode(spec.uploadLocators).replace(/^/gm, '    ').trim()},
     output: {
       extract: ${jsString(spec.output.extract || 'innerText')},
-      locator: ${locatorFunctionCode(spec.outputLocator)}
+      locator: ${spec.outputLocator ? locatorFunctionCode(spec.outputLocator) : 'null'}
     }
   }
 };
@@ -266,9 +311,29 @@ async function clearInput(page, input) {
 
 async function extractOutput(locator, mode = 'innerText') {
   const target = first(locator);
+  if (!target) return '';
+  if (mode?.startsWith?.('attribute:')) return await target.getAttribute(mode.slice('attribute:'.length));
   if (mode === 'textContent') return await target.textContent();
   if (mode === 'inputValue') return await target.inputValue();
   return await target.innerText();
+}
+
+function matchesNetworkSignal(response, signal) {
+  if (!signal?.url?.path && !signal?.url?.display) return false;
+  const url = response.url();
+  const method = response.request?.().method?.() || '';
+  if (signal.method && method && method !== signal.method) return false;
+  if (signal.status && response.status?.() !== signal.status) return false;
+  const needle = signal.url.path || signal.url.display;
+  return needle ? url.includes(needle) : true;
+}
+
+function prepareNetworkWaits(page, waitTimeout) {
+  return (spec.waitSignals || [])
+    .filter(signal => ['network-response', 'network-stream'].includes(signal.type))
+    .slice(0, 2)
+    .map(signal => page.waitForResponse(response => matchesNetworkSignal(response, signal), { timeout: waitTimeout })
+      .catch(error => ({ error, signal })));
 }
 
 export async function preload(ctx, options = {}) {
@@ -289,8 +354,8 @@ export async function generate(ctx, req = {}) {
   const log = logger?.child?.({ adapter: manifest.id }) || noopLogger;
 
   if (!prompt) return { error: 'prompt is required', retryable: false };
-  if (req.imagePaths?.length) {
-    return { error: 'generated sidecar text adapter does not support image input', retryable: false };
+  if (req.imagePaths?.length && !spec.bindings.uploads?.length) {
+    return { error: 'generated sidecar adapter has no upload binding', retryable: false };
   }
 
   try {
@@ -305,13 +370,29 @@ export async function generate(ctx, req = {}) {
     await waitForInput(page, input, { click: false, timeout: waitTimeout });
     await safeClick(page, input, { bias: 'input' });
     await clearInput(page, input);
+    if (req.imagePaths?.length) {
+      const upload = spec.bindings.uploads[0];
+      const uploadTarget = first(upload.locator(page));
+      await uploadFilesViaChooser(page, uploadTarget, req.imagePaths);
+    }
     await humanType(page, input, prompt);
+    const networkWaits = prepareNetworkWaits(page, waitTimeout);
     ${submitCode}
+    if (networkWaits.length) {
+      await Promise.race([Promise.race(networkWaits), sleep(5000, 5000)]).catch(() => {});
+    }
 
     const output = first(spec.bindings.output.locator(page));
     await output.waitFor({ state: 'visible', timeout: waitTimeout });
     await sleep(300, 600);
-    const text = (await extractOutput(output, spec.bindings.output.extract) || '').trim();
+    const raw = (await extractOutput(output, spec.bindings.output.extract) || '').trim();
+    if (spec.template === 'download_image') {
+      if (!raw) return { error: 'empty image URL', retryable: false };
+      const imageUrl = raw.startsWith('http') ? raw : new URL(raw, page.url()).toString();
+      log.info('generate complete', { imageUrl });
+      return { imageUrl };
+    }
+    const text = raw;
     if (!text) return { error: 'empty response', retryable: false };
     log.info('generate complete', { textChars: text.length });
     return { text };
