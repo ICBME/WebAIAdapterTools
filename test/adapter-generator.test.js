@@ -142,6 +142,24 @@ test('buildAdapterSource carries v2 IR template fields into generated specs', ()
         type: 'network-response',
         method: 'POST',
         url: { path: '/api/upload', display: 'https://example.com/api/upload' }
+      },
+      {
+        type: 'dom-visible',
+        name: 'result',
+        locator: {
+          value: 'page.locator("#result")',
+          confidence: 0.8
+        }
+      }
+    ],
+    setupSteps: [
+      {
+        type: 'click',
+        name: 'open-upload',
+        locator: {
+          value: 'page.getByRole("button", { name: "Upload" })',
+          confidence: 0.9
+        }
       }
     ],
     extractors: [
@@ -159,6 +177,11 @@ test('buildAdapterSource carries v2 IR template fields into generated specs', ()
   assert.match(source, /uploads: \[/);
   assert.match(source, /page\.getByRole\("button", \{ name: "Upload" \}\)/);
   assert.match(source, /"waitSignals": \[/);
+
+  const sidecarSource = buildAdapterSource(uploadPlan, { id: 'upload_text_adapter', targetKind: 'web2web-sidecar' });
+  assert.match(sidecarSource, /setupSteps: \[/);
+  assert.match(sidecarSource, /waitSignals: \[/);
+  assert.match(sidecarSource, /page\.locator\("#result"\)/);
 
   const imagePlan = v2Plan('download_image', {
     outputs: [

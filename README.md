@@ -97,7 +97,7 @@ Before writing an adapter, `generate-adapter` now enforces locator validation as
 
 The generator targets browser-driven adapters using template specs. It creates a thin adapter file under `WebAI2API/src/backend/adapter/` and expects the WebAI2API template runtime to perform the shared browser flow.
 
-When `--target-kind web2web-sidecar` is used, the generator writes a thin WEB2WEB sidecar adapter under `server/sidecar/src/adapters/`. The generated module exports `manifest`, `preload(ctx, options)`, and `generate(ctx, req)`, matching the sidecar registry contract. Shared browser flow lives in `server/sidecar/src/adapter_runtime/templateRunner.js`, so fixes to generated-adapter runtime behavior do not require regenerating every sidecar adapter.
+When `--target-kind web2web-sidecar` is used, the generator writes a thin WEB2WEB sidecar adapter under `server/sidecar/src/adapters/`. The generated module exports `manifest`, `preload(ctx, options)`, and `generate(ctx, req)`, matching the sidecar registry contract. Shared browser flow lives in `server/sidecar/src/adapter_runtime/templateRunner.js`, so fixes to generated-adapter runtime behavior do not require regenerating every sidecar adapter. The sidecar runtime consumes compiled `setupSteps`, DOM/network `waitSignals`, upload bindings, and stage-aware errors from the generated spec.
 
 Generated adapter flow:
 

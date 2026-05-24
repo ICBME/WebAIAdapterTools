@@ -205,6 +205,36 @@ ${uploadLocators.map(upload => `            {
         ]`;
 }
 
+function bindingObjectCode(item, label) {
+  const { locator: _locator, ...serializable } = item || {};
+  const locator = item?.locator?.value ? assertSafeLocatorExpression(item.locator.value, label) : '';
+  const props = Object.entries(serializable)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `            ${JSON.stringify(key)}: ${JSON.stringify(value)}`);
+  if (!locator) return `{
+${props.join(',\n')}
+        }`;
+  return `{
+${props.length ? `${props.join(',\n')},` : ''}
+            locator: ${locatorFunctionCode(locator)}
+        }`;
+}
+
+function setupStepBindingCode(steps = []) {
+  if (!steps.length) return '[]';
+  return `[
+${steps.map((step, index) => `            ${bindingObjectCode(step, `setupSteps[${index}]`)}`).join(',\n')}
+        ]`;
+}
+
+function waitSignalBindingCode(signals = []) {
+  const locatorSignals = signals.filter(signal => signal.locator?.value);
+  if (!locatorSignals.length) return '[]';
+  return `[
+${locatorSignals.map((signal, index) => `            ${bindingObjectCode(signal, `waitSignals[${index}]`)}`).join(',\n')}
+        ]`;
+}
+
 function buildWebAI2APISource(plan, options = {}) {
   const spec = buildAdapterSpec(plan, options);
 
@@ -270,6 +300,8 @@ const spec = {
       locator: ${locatorFunctionCode(spec.inputLocator)}
     },
     uploads: ${uploadBindingCode(spec.uploadLocators).replace(/^/gm, '    ').trim()},
+    setupSteps: ${setupStepBindingCode(spec.setupSteps).replace(/^/gm, '    ').trim()},
+    waitSignals: ${waitSignalBindingCode(spec.waitSignals).replace(/^/gm, '    ').trim()},
     submit: ${spec.submitCode},
     output: {
       extract: ${jsString(spec.output.extract || 'innerText')},
@@ -337,6 +369,16 @@ export async function loadInterfacePlan(captureDir) {
     if (error.code !== 'ENOENT') throw error;
     const bundle = await loadCaptureBundle(captureDir);
     return buildInterfacePlan(bundle);
+  }
+}
+
+async function assertSidecarRuntimeAvailable(targetRoot) {
+  const runnerPath = path.join(targetRoot, 'sidecar', 'src', 'adapter_runtime', 'templateRunner.js');
+  try {
+    await fs.access(runnerPath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    throw new Error(`WEB2WEB sidecar template runtime is missing: ${runnerPath}`);
   }
 }
 
@@ -465,6 +507,7 @@ export async function writeAdapterFromCapture(captureDir, options = {}) {
     : path.join(targetRoot, 'src', 'backend', 'adapter');
   const adapterPath = path.join(adapterDir, `${adapterId}.js`);
 
+  if (kind === 'web2web-sidecar') await assertSidecarRuntimeAvailable(targetRoot);
   await fs.mkdir(adapterDir, { recursive: true });
   await fs.writeFile(adapterPath, source, 'utf8');
 
