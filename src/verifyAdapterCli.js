@@ -6,7 +6,7 @@ import { DEFAULT_WINDOW_SIZE, parseWindowSize } from './size.js';
 
 function printHelp() {
   console.log(`Usage:
-  pnpm verify-adapter <adapter_id> --prompt <text> [--target <WebAI2API-dir>] [--model <model-id>] [--headless] [--visual] [--visual-out <dir>] [--slow-mo 300] [--pause-on-error] [--timeout 120000] [--user-data-dir <dir>] [--browser-path <path>] [--window-size 1280x720]
+  pnpm verify-adapter <adapter_id> --prompt <text> [--target <WebAI2API-dir>] [--model <model-id>] [--headless] [--visual] [--visual-out <dir>] [--capture-dir <dir>] [--write-diagnosis] [--slow-mo 300] [--pause-on-error] [--timeout 120000] [--user-data-dir <dir>] [--browser-path <path>] [--window-size 1280x720]
 
 Examples:
   pnpm verify-adapter bing_search_text --prompt "test" --target ../WebAI2API
@@ -28,6 +28,8 @@ function parseArgs(argv) {
     windowSize: { ...DEFAULT_WINDOW_SIZE },
     visual: false,
     visualOut: null,
+    captureDir: null,
+    writeDiagnosis: false,
     slowMo: 0,
     pauseOnError: false,
     help: false
@@ -49,6 +51,10 @@ function parseArgs(argv) {
       args.visual = true;
     } else if (arg === '--visual-out') {
       args.visualOut = argv[++i];
+    } else if (arg === '--capture-dir') {
+      args.captureDir = argv[++i];
+    } else if (arg === '--write-diagnosis') {
+      args.writeDiagnosis = true;
     } else if (arg === '--slow-mo') {
       args.slowMo = Number(argv[++i]);
     } else if (arg === '--pause-on-error') {
@@ -103,6 +109,8 @@ async function main() {
     windowSize: args.windowSize,
     visual: args.visual,
     visualOut: args.visualOut ? path.resolve(args.visualOut) : null,
+    captureDir: args.captureDir ? path.resolve(args.captureDir) : null,
+    writeDiagnosis: args.writeDiagnosis,
     slowMo: args.slowMo,
     pauseOnError: args.pauseOnError
   });
@@ -117,11 +125,16 @@ async function main() {
   if (result.artifacts?.outDir) {
     console.log(`  visual artifacts: ${result.artifacts.outDir}`);
     if (result.artifacts.timelinePath) console.log(`  timeline: ${result.artifacts.timelinePath}`);
+    if (result.artifacts.diagnosePath) console.log(`  diagnosis: ${result.artifacts.diagnosePath}`);
+    if (result.artifacts.interfacePatchPath) console.log(`  interface patch: ${result.artifacts.interfacePatchPath}`);
     if (result.tracePath) console.log(`  trace: ${result.tracePath}`);
   }
 
   if (result.result?.error) {
     console.log(`  error: ${result.result.error}`);
+    if (result.diagnosis?.type) {
+      console.log(`  diagnosis type: ${result.diagnosis.type} (${Math.round(result.diagnosis.confidence * 100)}%)`);
+    }
     process.exitCode = 1;
   } else if (result.result?.text) {
     const preview = String(result.result.text).replace(/\s+/g, ' ').trim().slice(0, 500);

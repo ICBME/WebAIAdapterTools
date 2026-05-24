@@ -9,7 +9,7 @@ import { DEFAULT_WINDOW_SIZE, parseWindowSize } from './size.js';
 
 function printHelp() {
   console.log(`Usage:
-  pnpm ai-generate-adapter <url> --out <capture-dir> --target <WebAI2API-dir> --id <adapter_id> [--target-kind webai2api|web2web-sidecar] [--plan webai2api-chatgpt-reference] [--ai-goal <text>] [--ai-input <text>] [--ai-provider raw|langgraph] [--ai-mode hybrid] [--model <model-id>] [--display-name <name>] [--verify]
+  pnpm ai-generate-adapter <url> --out <capture-dir> --target <WebAI2API-dir> --id <adapter_id> [--target-kind webai2api|web2web-sidecar] [--plan webai2api-chatgpt-reference] [--ai-goal <text>] [--ai-input <text>] [--ai-provider raw|langgraph] [--ai-mode hybrid] [--model <model-id>] [--display-name <name>] [--verify] [--write-diagnosis]
 
 Examples:
   pnpm ai-generate-adapter https://example.com/app --out captures/example-ai --target ../WebAI2API --id example_text --plan webai2api-chatgpt-reference --ai-input "hello"
@@ -51,6 +51,7 @@ function parseArgs(argv) {
     verifyTimeout: 120000,
     visualVerify: false,
     visualOut: null,
+    writeDiagnosis: false,
     slowMo: 0,
     pauseOnError: false,
     help: false
@@ -90,6 +91,7 @@ function parseArgs(argv) {
     else if (arg === '--verify-timeout') args.verifyTimeout = Number(argv[++i]);
     else if (arg === '--visual-verify') args.visualVerify = true;
     else if (arg === '--visual-out') args.visualOut = argv[++i];
+    else if (arg === '--write-diagnosis') args.writeDiagnosis = true;
     else if (arg === '--slow-mo') args.slowMo = Number(argv[++i]);
     else if (arg === '--pause-on-error') args.pauseOnError = true;
     else if (arg.startsWith('--')) throw new Error(`Unknown option: ${arg}`);

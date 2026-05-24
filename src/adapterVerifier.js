@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DEFAULT_WINDOW_SIZE } from './size.js';
 import { assertCompatibleDependencyVersions } from './versionGuard.js';
+import { writeFailureDiagnosisArtifacts } from './adapterDiagnosis.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -322,6 +323,17 @@ export async function verifyAdapter(options = {}) {
     };
     const artifactPaths = await visualRecorder.writeArtifacts(summary);
     summary.artifacts = artifactPaths;
+    const diagnosisArtifacts = await writeFailureDiagnosisArtifacts(summary, {
+      outDir: visualOut,
+      captureDir: options.captureDir,
+      interfacePath: options.interfacePath,
+      writeBack: options.writeDiagnosis
+    });
+    if (diagnosisArtifacts.diagnosePath) {
+      summary.artifacts.diagnosePath = diagnosisArtifacts.diagnosePath;
+      summary.artifacts.interfacePatchPath = diagnosisArtifacts.patchPath;
+      summary.diagnosis = diagnosisArtifacts.diagnosis?.primary || null;
+    }
     return summary;
   } finally {
     if (tracePath && browser.tracing?.stop) {

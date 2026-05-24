@@ -265,6 +265,8 @@ export async function runAiAdapterWorkflow(options = {}) {
         windowSize: options.windowSize || DEFAULT_WINDOW_SIZE,
         visual: Boolean(options.visualVerify),
         visualOut: options.visualOut,
+        captureDir,
+        writeDiagnosis: Boolean(options.writeDiagnosis),
         slowMo: options.slowMo,
         pauseOnError: options.pauseOnError
       });

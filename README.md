@@ -148,7 +148,7 @@ It writes `locator-validation.json` and `locator-validation.md`. With `--write`,
 ## Verify A Generated Adapter
 
 ```bash
-pnpm verify-adapter <adapter_id> --prompt <text> [--target <WebAI2API-dir>] [--model <model-id>] [--headless] [--visual] [--visual-out <dir>]
+pnpm verify-adapter <adapter_id> --prompt <text> [--target <WebAI2API-dir>] [--model <model-id>] [--headless] [--visual] [--visual-out <dir>] [--capture-dir <dir>] [--write-diagnosis]
 ```
 
 Examples:
@@ -164,12 +164,16 @@ The verifier loads `WebAI2API/src/backend/adapter/<adapter_id>.js`, launches a C
 When `--visual-out` is provided, the verifier writes a review bundle:
 
 - `verify.json`: machine-readable status, result metadata, and step list.
+- `diagnose.json`: structured failure diagnosis when verification fails.
+- `interface.patch.json`: suggested interface-plan patch operations when verification fails.
 - `timeline.md`: human-readable step timeline.
 - `screenshots/*.png`: screenshots captured at verifier and template-runner steps.
 - `trace.zip`: Playwright trace when tracing is available.
 - `final-page.html` or `error-page.html`: final DOM snapshot.
 
 `--visual` forces a headed browser and overlays the current verification step inside the page. `--slow-mo <ms>` adds a delay after each observed step. `--pause-on-error` leaves the browser open when verification fails.
+
+Pass `--capture-dir <dir>` with `--visual-out` to let diagnosis read the original `interface.json` and produce more specific patch paths. Pass `--write-diagnosis` to annotate that `interface.json` with a top-level `verificationDiagnosis` summary that points to the generated patch.
 
 ## Login State
 
