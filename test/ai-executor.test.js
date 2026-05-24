@@ -39,6 +39,45 @@ function snapshot() {
     cssPath: '#send',
     bbox: { x: 220, y: 10, width: 80, height: 40 }
   };
+  const select = {
+    idRef: 'el_3',
+    categories: ['select'],
+    tag: 'select',
+    role: '',
+    type: '',
+    name: 'model',
+    text: '',
+    placeholder: '',
+    ariaLabel: 'Model',
+    labelText: 'Model',
+    visible: true,
+    disabled: false,
+    readOnly: false,
+    cssPath: '#model',
+    options: [
+      { index: 0, value: 'mini', label: 'Mini', selected: true, disabled: false },
+      { index: 1, value: 'pro', label: 'Pro', selected: false, disabled: false }
+    ],
+    bbox: { x: 10, y: 80, width: 160, height: 32 }
+  };
+  const checkbox = {
+    idRef: 'el_4',
+    categories: ['toggle'],
+    tag: 'input',
+    role: '',
+    type: 'checkbox',
+    name: 'agree',
+    text: '',
+    placeholder: '',
+    ariaLabel: 'Agree',
+    labelText: 'Agree',
+    visible: true,
+    disabled: false,
+    readOnly: false,
+    checked: false,
+    cssPath: '#agree',
+    bbox: { x: 10, y: 130, width: 20, height: 20 }
+  };
   return {
     page: {
       title: 'Fixture Chat',
@@ -47,10 +86,11 @@ function snapshot() {
       textStats: { preview: 'Ready. Message Send' },
       counts: {}
     },
-    elements: { all: [input, button] },
+    elements: { all: [input, button, select, checkbox] },
     recommendations: {
       inputs: [{ elementId: 'el_1', score: 99, reasons: [], element: {} }],
       submits: [{ elementId: 'el_2', score: 90, reasons: [], element: {} }],
+      selects: [{ elementId: 'el_3', score: 75, reasons: [], element: {} }],
       outputs: [],
       uploads: []
     }
@@ -67,6 +107,137 @@ test('buildAiObservation exposes safe serializable element refs', () => {
   assert.equal(observation.targetMap.get('el_1').cssPath, '#prompt');
   assert.equal(serialized.targetMap, undefined);
   assert.equal(serialized.elements[0].idRef, 'el_1');
+});
+
+test('executeAiDecision supports params DSL for type and clear', async () => {
+  const observation = buildAiObservation(snapshot(), { aiInput: 'hello' });
+  const calls = [];
+  const locator = {
+    first: () => locator,
+    waitFor: async () => calls.push(['waitFor']),
+    type: async (value, options) => calls.push(['type', value, options?.delay]),
+    fill: async value => calls.push(['fill', value])
+  };
+  const page = {
+    locator: selector => {
+      calls.push(['locator', selector]);
+      return locator;
+    }
+  };
+
+  const typed = await executeAiDecision(page, observation, {
+    mode: 'execute',
+    confidence: 0.9,
+    action: 'type',
+    targetRef: 'el_1',
+    params: { valueFrom: 'aiInput', delay: 5 }
+  });
+  const cleared = await executeAiDecision(page, observation, {
+    mode: 'execute',
+    confidence: 0.9,
+    action: 'clear',
+    targetRef: 'el_1'
+  });
+
+  assert.equal(typed.ok, true);
+  assert.equal(cleared.ok, true);
+  assert.deepEqual(calls, [
+    ['locator', '#prompt'],
+    ['waitFor'],
+    ['type', 'hello', 5],
+    ['locator', '#prompt'],
+    ['waitFor'],
+    ['fill', '']
+  ]);
+});
+
+test('executeAiDecision selects and checks safe form controls', async () => {
+  const observation = buildAiObservation(snapshot(), { aiInput: 'hello' });
+  const calls = [];
+  const locators = {
+    '#model': {
+      first() { return this; },
+      waitFor: async () => calls.push(['waitFor', '#model']),
+      selectOption: async option => calls.push(['selectOption', option])
+    },
+    '#agree': {
+      first() { return this; },
+      waitFor: async () => calls.push(['waitFor', '#agree']),
+      check: async () => calls.push(['check'])
+    }
+  };
+  const page = {
+    locator: selector => {
+      calls.push(['locator', selector]);
+      return locators[selector];
+    }
+  };
+
+  const selected = await executeAiDecision(page, observation, {
+    mode: 'execute',
+    confidence: 0.9,
+    action: 'select',
+    targetRef: 'el_3',
+    params: { label: 'Pro' }
+  });
+  const checked = await executeAiDecision(page, observation, {
+    mode: 'execute',
+    confidence: 0.9,
+    action: 'check',
+    targetRef: 'el_4'
+  });
+
+  assert.equal(selected.ok, true);
+  assert.equal(checked.ok, true);
+  assert.deepEqual(calls, [
+    ['locator', '#model'],
+    ['waitFor', '#model'],
+    ['selectOption', { label: 'Pro' }],
+    ['locator', '#agree'],
+    ['waitFor', '#agree'],
+    ['check']
+  ]);
+});
+
+test('executeAiDecision supports scroll and waitFor actions', async () => {
+  const observation = buildAiObservation(snapshot(), { aiInput: 'hello' });
+  const calls = [];
+  const locator = {
+    first: () => locator,
+    waitFor: async options => calls.push(['waitFor', options]),
+    textContent: async () => 'Ready. Message Send'
+  };
+  const page = {
+    locator: selector => {
+      calls.push(['locator', selector]);
+      return locator;
+    },
+    mouse: {
+      wheel: async (x, y) => calls.push(['wheel', x, y])
+    }
+  };
+
+  const scrolled = await executeAiDecision(page, observation, {
+    mode: 'execute',
+    confidence: 0.9,
+    action: 'scroll',
+    params: { direction: 'down', amount: 300 }
+  });
+  const waited = await executeAiDecision(page, observation, {
+    mode: 'execute',
+    confidence: 0.9,
+    action: 'waitFor',
+    targetRef: 'el_2',
+    params: { state: 'visible', text: 'Send' }
+  });
+
+  assert.equal(scrolled.ok, true);
+  assert.equal(waited.ok, true);
+  assert.deepEqual(calls, [
+    ['wheel', 0, 300],
+    ['locator', '#send'],
+    ['waitFor', { state: 'visible', timeout: 10000 }]
+  ]);
 });
 
 test('executeAiDecision fills a selected targetRef', async () => {
@@ -218,6 +389,7 @@ test('normalizeAiDecision treats valid missing-confidence actions as implicit co
 
   assert.equal(decision.confidence, 0.8);
   assert.equal(decision.confidenceSource, 'implicit');
+  assert.equal(decision.params.valueFrom, 'aiInput');
   assert.equal(shouldFallbackDecision(decision), '');
 });
 
@@ -231,4 +403,17 @@ test('normalizeAiDecision normalizes percentage confidence', () => {
 
   assert.equal(decision.confidence, 0.85);
   assert.equal(decision.confidenceSource, 'model');
+});
+
+test('normalizeAiDecision accepts params DSL for new actions', () => {
+  const decision = normalizeAiDecision({
+    mode: 'execute',
+    action: 'select',
+    targetRef: 'el_3',
+    params: { label: 'Pro' }
+  });
+
+  assert.equal(decision.confidence, 0.8);
+  assert.deepEqual(decision.params, { label: 'Pro' });
+  assert.equal(shouldFallbackDecision(decision), '');
 });

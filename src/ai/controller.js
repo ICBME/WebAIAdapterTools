@@ -177,6 +177,7 @@ export async function runAiHybridAction(page, options = {}) {
         mode: decision.mode,
         action: decision.action,
         targetRef: decision.targetRef || null,
+        params: decision.params || {},
         key: decision.key || null,
         confidence: decision.confidence,
         ok: true,

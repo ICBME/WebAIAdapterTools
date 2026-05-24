@@ -276,7 +276,24 @@ pnpm collect https://example.com/app \
 
 The default `raw` provider keeps the direct OpenAI-compatible HTTP call for minimal dependencies and simpler debugging.
 
-The controller only accepts structured JSON decisions and only executes whitelisted browser actions (`fill`, `click`, `press`, `wait`) against captured element `idRef` targets. It does not run AI-generated JavaScript. Login, captcha, payment, account, password, purchase, and delete-like targets trigger human fallback or failure.
+The controller only accepts structured JSON decisions and only executes registered DSL actions against captured element `idRef` targets. It does not run AI-generated JavaScript. Login, captcha, payment, account, password, purchase, and delete-like targets trigger human fallback or failure.
+
+Preferred AI decision shape:
+
+```json
+{
+  "mode": "execute",
+  "action": "select",
+  "targetRef": "el_12",
+  "params": {
+    "label": "Pro"
+  },
+  "confidence": 0.86,
+  "reason": "The native select is visible and matches the goal."
+}
+```
+
+Registered safe actions include `fill`, `type`, `clear`, `click`, `press`, `select`, `check`, `uncheck`, `hover`, `scroll`, `wait`, `waitFor`, and `upload`. Legacy top-level `value`, `valueFrom`, `key`, `path`, and `paths` fields are still accepted, but new providers should put action-specific fields under `params`.
 
 When human fallback is needed, use `--browser-controls` for in-page instructions:
 

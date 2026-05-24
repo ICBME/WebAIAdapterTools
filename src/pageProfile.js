@@ -137,6 +137,10 @@ export async function collectPageSnapshot(page, capture = {}) {
         categories.push('input');
       }
       if (tag === 'input' && type === 'file') categories.push('fileInput');
+      if (tag === 'select' || role === 'combobox' || role === 'listbox') categories.push('select');
+      if ((tag === 'input' && ['checkbox', 'radio'].includes(type)) || ['checkbox', 'radio', 'switch'].includes(role)) {
+        categories.push('toggle');
+      }
       if (tag === 'button' || role === 'button' || (tag === 'input' && ['submit', 'button', 'image'].includes(type))) categories.push('button');
       if (tag === 'a' && el.href) categories.push('link');
       if (tag === 'form') categories.push('form');
@@ -151,6 +155,23 @@ export async function collectPageSnapshot(page, capture = {}) {
         categories.push('output');
       }
       return categories;
+    }
+
+    function optionSummary(el) {
+      if (el.localName !== 'select') return [];
+      return Array.from(el.options || []).slice(0, 20).map((option, index) => ({
+        index,
+        value: compact(option.value, 120),
+        label: compact(option.label || option.textContent, 120),
+        selected: Boolean(option.selected),
+        disabled: Boolean(option.disabled)
+      }));
+    }
+
+    function isScrollable(el) {
+      const style = window.getComputedStyle(el);
+      return /(auto|scroll)/.test(`${style.overflow} ${style.overflowX} ${style.overflowY}`) &&
+        (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth);
     }
 
     const collected = [];
@@ -179,6 +200,17 @@ export async function collectPageSnapshot(page, capture = {}) {
             labelText: labelText(el),
             href: el.href || '',
             contentEditable: Boolean(el.isContentEditable),
+            valuePreview: 'value' in el ? compact(el.value, 160) : '',
+            checked: 'checked' in el ? Boolean(el.checked) : null,
+            selected: 'selected' in el ? Boolean(el.selected) : null,
+            options: optionSummary(el),
+            multiple: Boolean(el.multiple),
+            accept: compact(el.getAttribute('accept'), 120),
+            inputMode: compact(el.getAttribute('inputmode'), 40),
+            ariaExpanded: compact(el.getAttribute('aria-expanded'), 20),
+            ariaChecked: compact(el.getAttribute('aria-checked'), 20),
+            hasPopup: compact(el.getAttribute('aria-haspopup'), 40),
+            scrollable: isScrollable(el),
             disabled: Boolean(el.disabled || el.getAttribute('aria-disabled') === 'true'),
             readOnly: Boolean(el.readOnly),
             visible: isVisible(el),

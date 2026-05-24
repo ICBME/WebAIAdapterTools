@@ -39,6 +39,23 @@ function summarizeElement(element) {
     placeholder: compact(element.placeholder),
     ariaLabel: compact(element.ariaLabel),
     labelText: compact(element.labelText),
+    valuePreview: compact(element.valuePreview),
+    checked: element.checked ?? null,
+    selected: element.selected ?? null,
+    options: (element.options || []).slice(0, 20).map(option => ({
+      index: option.index,
+      value: compact(option.value, 120),
+      label: compact(option.label, 120),
+      selected: Boolean(option.selected),
+      disabled: Boolean(option.disabled)
+    })),
+    multiple: Boolean(element.multiple),
+    accept: compact(element.accept, 120),
+    inputMode: compact(element.inputMode, 40),
+    ariaExpanded: compact(element.ariaExpanded, 20),
+    ariaChecked: compact(element.ariaChecked, 20),
+    hasPopup: compact(element.hasPopup, 40),
+    scrollable: Boolean(element.scrollable),
     visible: Boolean(element.visible),
     disabled: Boolean(element.disabled),
     readOnly: Boolean(element.readOnly),
@@ -63,7 +80,7 @@ export function buildAiObservation(snapshot, options = {}) {
   const all = snapshot?.elements?.all || [];
   const elements = all
     .filter(element => priorityIds.has(element.idRef) || (element.categories || []).some(category => (
-      category === 'input' || category === 'button' || category === 'fileInput' || category === 'output'
+      category === 'input' || category === 'button' || category === 'fileInput' || category === 'output' || category === 'select' || category === 'toggle'
     )))
     .slice(0, MAX_ELEMENTS)
     .map(summarizeElement);

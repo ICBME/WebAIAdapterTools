@@ -1,3 +1,5 @@
+import { getActionSpec, isKnownAiAction, normalizeDecisionParams, renderActionSpecsForPrompt } from './actions.js';
+
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_AI_TIMEOUT = 180000;
 
@@ -26,10 +28,11 @@ Allowed modes:
 - finish: capture goal is complete.
 
 Allowed execute actions:
-- fill: requires targetRef and valueFrom "aiInput" or value.
-- click: requires targetRef.
-- press: requires key, targetRef optional.
-- wait: optional targetRef, waits for visible element or page settle.
+${renderActionSpecsForPrompt()}
+
+Decision shape:
+- Prefer {"mode":"execute","action":"...","targetRef":"el_1","params":{...},"confidence":0.8,"reason":"..."}.
+- Legacy top-level value, valueFrom, key, text, path, and paths are accepted, but params is preferred.
 
 Rules:
 - Never output JavaScript or Playwright code.
@@ -247,24 +250,29 @@ function normalizeConfidence(value, decision, mode) {
 
   const action = decision.action || null;
   const targetRef = decision.targetRef || decision.target?.idRef || null;
-  const hasRequiredTarget = !['fill', 'click'].includes(action) || Boolean(targetRef);
-  const isKnownAction = ['fill', 'click', 'press', 'wait'].includes(action);
-  return isKnownAction && hasRequiredTarget ? 0.8 : 0;
+  const spec = getActionSpec(action);
+  const hasRequiredTarget = !spec?.requiresTarget || Boolean(targetRef);
+  return isKnownAiAction(action) && hasRequiredTarget ? 0.8 : 0;
 }
 
 export function normalizeAiDecision(raw) {
   const decision = raw && typeof raw === 'object' ? raw : {};
   const mode = decision.mode || (decision.action === 'finish' ? 'finish' : 'execute');
   const confidence = normalizeConfidence(decision.confidence, decision, mode);
+  const params = normalizeDecisionParams(decision);
   return {
     mode,
     confidence,
     confidenceSource: decision.confidence === undefined ? 'implicit' : 'model',
     action: decision.action || null,
     targetRef: decision.targetRef || decision.target?.idRef || null,
-    value: decision.value ?? '',
-    valueFrom: decision.valueFrom || null,
-    key: decision.key || null,
+    params,
+    value: params.value ?? '',
+    valueFrom: params.valueFrom || null,
+    key: params.key || null,
+    text: params.text || null,
+    path: params.path || null,
+    paths: params.paths || null,
     waitAfter: decision.waitAfter || null,
     userInstruction: decision.userInstruction || '',
     reason: decision.reason || ''
