@@ -116,11 +116,11 @@ test('buildAdapterSource creates a WEB2WEB sidecar adapter', () => {
     targetKind: 'web2web-sidecar'
   });
 
-  assert.match(source, /import \{ gotoWithCheck, humanType, normalizeError, safeClick, sleep, uploadFilesViaChooser, waitForInput \} from '\.\.\/browser\/actions\.js'/);
+  assert.match(source, /import \{ preloadTemplate, runTemplate \} from '\.\.\/adapter_runtime\/templateRunner\.js'/);
   assert.match(source, /export async function generate\(ctx, req = \{\}\)/);
   assert.match(source, /export async function preload\(ctx, options = \{\}\)/);
   assert.match(source, /export const manifest/);
-  assert.doesNotMatch(source, /adapter_runtime\/templateRunner/);
+  assert.doesNotMatch(source, /gotoWithCheck/);
 });
 
 test('buildAdapterSource carries v2 IR template fields into generated specs', () => {
@@ -213,16 +213,15 @@ test('writeAdapterFromCapture writes importable adapter file', async () => {
 test('writeAdapterFromCapture writes importable WEB2WEB sidecar adapter file', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'web-adapter-tools-generated-sidecar-target-'));
   const capture = await fs.mkdtemp(path.join(os.tmpdir(), 'web-adapter-tools-generated-sidecar-capture-'));
-  await fs.mkdir(path.join(root, 'sidecar/src/browser'), { recursive: true });
+  await fs.mkdir(path.join(root, 'sidecar/src/adapter_runtime'), { recursive: true });
   await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({ type: 'module' }), 'utf8');
-  await fs.writeFile(path.join(root, 'sidecar/src/browser/actions.js'), `
-export async function gotoWithCheck(page, url) { page.gotoUrl = url; }
-export async function waitForInput() {}
-export async function safeClick() {}
-export async function humanType(page, target, text) { page.typed = text; target.typed = text; }
-export async function sleep() {}
-export async function uploadFilesViaChooser() {}
-export function normalizeError(err, stage) { return { error: err.message, stage }; }
+  await fs.writeFile(path.join(root, 'sidecar/src/adapter_runtime/templateRunner.js'), `
+export async function preloadTemplate(ctx, spec, options) {
+  ctx.preloaded = { spec, options };
+}
+export async function runTemplate(ctx, spec, req) {
+  return { text: spec.bindings.input.locator(ctx.page).kind + ':' + req.prompt };
+}
 `, 'utf8');
   await fs.writeFile(path.join(capture, 'interface.json'), JSON.stringify(plan()), 'utf8');
 
@@ -240,32 +239,15 @@ export function normalizeError(err, stage) { return { error: err.message, stage 
   assert.equal(typeof module.generate, 'function');
   assert.equal(typeof module.preload, 'function');
 
-  const inputLocator = {
-    first() { return this; },
-    fill() {},
-    pressKey: '',
-    async press(key) { this.pressKey = key; },
-    async waitFor() {},
-    async innerText() { return ''; }
-  };
-  const outputLocator = {
-    first() { return this; },
-    async waitFor() {},
-    async innerText() { return 'ok'; }
-  };
   const page = {
-    getByRole() { return inputLocator; },
-    locator() { return outputLocator; },
-    keyboard: {
-      async down() {},
-      async press() {},
-      async up() {}
-    }
+    getByRole() { return { kind: 'input' }; },
+    locator() { return { kind: 'output' }; }
   };
 
-  assert.deepEqual(await module.generate({ page }, { prompt: 'hello', model: 'example-search' }), { text: 'ok' });
-  assert.equal(page.gotoUrl, 'https://example.com/');
-  assert.equal(page.typed, 'hello');
+  assert.deepEqual(await module.generate({ page }, { prompt: 'hello', model: 'example-search' }), { text: 'input:hello' });
+  const ctx = { page };
+  await module.preload(ctx, { timeoutMs: 100 });
+  assert.equal(ctx.preloaded.spec.id, 'example_search_text');
   assert.match(result.configSnippet, /"type": "example_search_text"/);
 });
 
