@@ -82,7 +82,7 @@ The current IR schema is `web-adapter-tools.interface-plan.v2`. It keeps the old
 ## Generate An Adapter
 
 ```bash
-pnpm generate-adapter <capture-dir> --target <WebAI2API-dir> --id <adapter_id> [--target-kind webai2api|web2web-sidecar] [--model <model-id>] [--display-name <name>] [--worker-name <name>]
+pnpm generate-adapter <capture-dir> --target <WebAI2API-dir> --id <adapter_id> [--target-kind webai2api|web2web-sidecar] [--model <model-id>] [--display-name <name>] [--worker-name <name>] [--min-locator-score 70] [--write-validation] [--force]
 ```
 
 Example:
@@ -93,9 +93,13 @@ pnpm generate-adapter captures/action --target ../WebAI2API --id bing_search_tex
 pnpm generate-adapter captures/action --target ../server --target-kind web2web-sidecar --id bing_search_text --model bing-search --display-name "Bing Search"
 ```
 
-The generator targets browser-driven adapters using template specs. It creates a thin adapter file under `WebAI2API/src/backend/adapter/` and expects the WebAI2API template runtime to perform the shared browser flow:
+Before writing an adapter, `generate-adapter` now enforces locator validation as a quality gate. If `locator-validation.json` exists in the capture directory, it is loaded and checked against `--min-locator-score` (default `70`). If the file is missing, the generator runs the same static validator used by `pnpm validate-interface` and writes `locator-validation.json` plus `locator-validation.md`. Generation is refused when any locator is below the threshold. Use `--write-validation` to also annotate `interface.json`, or `--force` to skip the gate for an intentional one-off generation.
+
+The generator targets browser-driven adapters using template specs. It creates a thin adapter file under `WebAI2API/src/backend/adapter/` and expects the WebAI2API template runtime to perform the shared browser flow.
 
 When `--target-kind web2web-sidecar` is used, the generator writes a WEB2WEB sidecar adapter under `server/sidecar/src/adapters/`. The generated module exports `manifest`, `preload(ctx, options)`, and `generate(ctx, req)`, matching the sidecar registry contract.
+
+Generated adapter flow:
 
 - open target URL
 - fill the recorded text input with the OpenAI prompt
@@ -113,6 +117,33 @@ Template support:
 After generation, set a WebAI2API worker `type` to the generated adapter id, for example `type: bing_search_text`.
 
 The command also prints a minimal worker config snippet that can be merged into `WebAI2API/data/config.yaml` or `WebAI2API/config.yaml`.
+
+## Validate Locator Stability
+
+After `pnpm analyze`, run locator validation before generating an adapter:
+
+```bash
+pnpm validate-interface <capture-dir> [--min-score 70] [--write] [--strict]
+```
+
+Examples:
+
+```bash
+pnpm validate-interface captures/action
+pnpm validate-interface captures/action --write
+pnpm validate-interface captures/action --min-score 80 --strict
+```
+
+The validator reads the capture bundle and `interface.json`, then scores each locator against the available `before`, `after`, or `current` element snapshots. Scores combine:
+
+- snapshot coverage
+- uniqueness
+- visibility
+- expected element category
+- cross-snapshot element consistency
+- original locator confidence
+
+It writes `locator-validation.json` and `locator-validation.md`. With `--write`, it also annotates `interface.json` with a top-level `locatorValidation` summary and per-locator `stability` metadata. With `--strict`, the command exits non-zero when any locator falls below `--min-score`.
 
 ## Verify A Generated Adapter
 

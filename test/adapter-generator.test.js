@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { buildAdapterSource, buildWorkerConfigSnippet, writeAdapterFromCapture } from '../src/adapterGenerator.js';
+import { buildAdapterSource, buildWorkerConfigSnippet, ensureLocatorValidationGate, writeAdapterFromCapture } from '../src/adapterGenerator.js';
 
 function plan() {
   return {
@@ -60,6 +60,38 @@ function v2Plan(template, extra = {}) {
   base.operation.template = template;
   Object.assign(base.operation, extra);
   return base;
+}
+
+function profileElement(overrides = {}) {
+  return {
+    idRef: overrides.idRef || 'el_1',
+    tag: overrides.tag || 'textarea',
+    role: overrides.role || '',
+    type: overrides.type || '',
+    id: overrides.id || '',
+    className: overrides.className || '',
+    attributes: overrides.attributes || {},
+    text: overrides.text || '',
+    placeholder: overrides.placeholder || '',
+    ariaLabel: overrides.ariaLabel || '',
+    labelText: overrides.labelText || '',
+    visible: overrides.visible ?? true,
+    cssPath: overrides.cssPath || '',
+    categories: overrides.categories || ['input']
+  };
+}
+
+async function writeValidationCapture(capture, elements) {
+  await fs.mkdir(path.join(capture, 'elements'), { recursive: true });
+  await fs.writeFile(path.join(capture, 'profile.json'), JSON.stringify({
+    files: {
+      beforeElements: 'elements/before.json',
+      elements: 'elements/after.json'
+    }
+  }), 'utf8');
+  await fs.writeFile(path.join(capture, 'interface.json'), JSON.stringify(plan()), 'utf8');
+  await fs.writeFile(path.join(capture, 'elements/before.json'), JSON.stringify({ all: elements.before }), 'utf8');
+  await fs.writeFile(path.join(capture, 'elements/after.json'), JSON.stringify({ all: elements.after }), 'utf8');
 }
 
 test('buildAdapterSource creates a WebAI2API manifest adapter', () => {
@@ -235,6 +267,68 @@ export function normalizeError(err, stage) { return { error: err.message, stage 
   assert.equal(page.gotoUrl, 'https://example.com/');
   assert.equal(page.typed, 'hello');
   assert.match(result.configSnippet, /"type": "example_search_text"/);
+});
+
+test('ensureLocatorValidationGate generates artifacts and annotates interface plans', async () => {
+  const capture = await fs.mkdtemp(path.join(os.tmpdir(), 'web-adapter-tools-gated-capture-'));
+  const input = profileElement({
+    idRef: 'el_input',
+    tag: 'textarea',
+    labelText: 'Search',
+    placeholder: 'Search',
+    categories: ['input']
+  });
+  const output = profileElement({
+    idRef: 'el_output',
+    tag: 'section',
+    ariaLabel: 'Search Results',
+    text: 'Result text',
+    categories: ['output']
+  });
+  await writeValidationCapture(capture, {
+    before: [input, output],
+    after: [input, output]
+  });
+
+  const gate = await ensureLocatorValidationGate(capture, {
+    minLocatorScore: 70,
+    writeValidation: true
+  });
+  const annotated = JSON.parse(await fs.readFile(path.join(capture, 'interface.json'), 'utf8'));
+
+  assert.equal(gate.generated, true);
+  assert.equal(gate.validation.ok, true);
+  assert.ok(await fs.readFile(path.join(capture, 'locator-validation.json'), 'utf8'));
+  assert.equal(annotated.locatorValidation.ok, true);
+  assert.equal(annotated.operation.outputs[0].locator.stability.status, 'stable');
+});
+
+test('ensureLocatorValidationGate rejects locators below the requested threshold', async () => {
+  const capture = await fs.mkdtemp(path.join(os.tmpdir(), 'web-adapter-tools-rejected-capture-'));
+  const input = profileElement({
+    idRef: 'el_input',
+    tag: 'textarea',
+    labelText: 'Search',
+    placeholder: 'Search',
+    categories: ['input']
+  });
+  const output = profileElement({
+    idRef: 'el_output',
+    tag: 'section',
+    ariaLabel: 'Search Results',
+    text: 'Result text',
+    categories: ['output']
+  });
+  await writeValidationCapture(capture, {
+    before: [input],
+    after: [input, output]
+  });
+
+  await assert.rejects(
+    () => ensureLocatorValidationGate(capture, { minLocatorScore: 70 }),
+    /Locator validation failed:/
+  );
+  assert.ok(await fs.readFile(path.join(capture, 'locator-validation.json'), 'utf8'));
 });
 
 test('buildAdapterSource rejects unsafe locator expressions', () => {

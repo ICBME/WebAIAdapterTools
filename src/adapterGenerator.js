@@ -1,6 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { buildInterfacePlan, loadCaptureBundle } from './interfaceAnalyzer.js';
+import {
+  applyLocatorValidation,
+  loadLocatorValidationInputs,
+  validateInterfaceLocators,
+  writeLocatorValidationArtifacts
+} from './locatorValidator.js';
 
 const DEFAULT_MODEL_ID = 'generated-browser-text';
 const TARGET_KINDS = new Set(['webai2api', 'web2web-sidecar']);
@@ -22,6 +28,7 @@ const LOCATOR_PREFIXES = [
   'page.getByTitle(',
   'page.getByTestId('
 ];
+const DEFAULT_LOCATOR_SCORE = 70;
 
 function compact(value, max = 120) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -462,6 +469,120 @@ export async function loadInterfacePlan(captureDir) {
     const bundle = await loadCaptureBundle(captureDir);
     return buildInterfacePlan(bundle);
   }
+}
+
+async function readJsonIfExists(filePath) {
+  try {
+    return JSON.parse(await fs.readFile(filePath, 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function validateScoreThreshold(value) {
+  const score = Number(value ?? DEFAULT_LOCATOR_SCORE);
+  if (!Number.isFinite(score) || score < 0 || score > 100) {
+    throw new Error('--min-locator-score must be between 0 and 100');
+  }
+  return score;
+}
+
+function normalizeLocatorValidation(validation, minLocatorScore) {
+  if (validation?.schemaVersion !== 'web-adapter-tools.locator-validation.v1') {
+    throw new Error('locator-validation.json schemaVersion 不正确');
+  }
+  if (!Array.isArray(validation.results)) {
+    throw new Error('locator-validation.json 缺少 results');
+  }
+  const results = validation.results;
+  const scores = results.map(result => Number(result.stableScore || 0));
+  const minScore = scores.length ? Math.min(...scores) : 0;
+  const averageScore = scores.length
+    ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length)
+    : 0;
+  const unstable = results.filter(result => Number(result.stableScore || 0) < minLocatorScore);
+  return {
+    ...validation,
+    threshold: minLocatorScore,
+    locatorCount: results.length,
+    minScore,
+    averageScore,
+    ok: unstable.length === 0,
+    unstableCount: unstable.length
+  };
+}
+
+function locatorFailureDetails(validation) {
+  return (validation.results || [])
+    .filter(result => Number(result.stableScore || 0) < validation.threshold)
+    .slice(0, 8)
+    .map(result => `  - ${result.path}: ${result.stableScore}/100 ${result.expression || ''}`.trimEnd())
+    .join('\n');
+}
+
+export async function ensureLocatorValidationGate(captureDir, options = {}) {
+  const minLocatorScore = validateScoreThreshold(options.minLocatorScore);
+  if (options.force) {
+    return {
+      skipped: true,
+      minLocatorScore
+    };
+  }
+
+  const root = path.resolve(captureDir);
+  const validationPath = path.join(root, 'locator-validation.json');
+  let validation = await readJsonIfExists(validationPath);
+  let generated = false;
+  let artifacts = null;
+  let plan = null;
+  let interfacePath = options.interfacePath ? path.resolve(options.interfacePath) : path.join(root, 'interface.json');
+
+  if (validation) {
+    validation = normalizeLocatorValidation(validation, minLocatorScore);
+  } else {
+    const inputs = await loadLocatorValidationInputs(root, {
+      interfacePath: options.interfacePath
+    });
+    plan = inputs.plan;
+    interfacePath = inputs.interfacePath;
+    validation = validateInterfaceLocators(plan, inputs.snapshots, { minScore: minLocatorScore });
+    artifacts = await writeLocatorValidationArtifacts(validation, root);
+    generated = true;
+  }
+
+  let wroteInterface = false;
+  if (options.writeValidation) {
+    if (!plan) {
+      const inputs = await loadLocatorValidationInputs(root, {
+        interfacePath: options.interfacePath
+      });
+      plan = inputs.plan;
+      interfacePath = inputs.interfacePath;
+    }
+    const annotated = applyLocatorValidation(plan, validation);
+    await fs.writeFile(interfacePath, JSON.stringify(annotated, null, 2), 'utf8');
+    wroteInterface = true;
+  }
+
+  if (!validation.ok) {
+    const details = locatorFailureDetails(validation);
+    const hint = `Run pnpm validate-interface ${captureDir} --min-score ${minLocatorScore} --write, fix weak locators, or pass --force to skip this gate.`;
+    throw Object.assign(
+      new Error(`Locator validation failed: ${validation.unstableCount} locator(s) below ${minLocatorScore}/100.\n${details}\n${hint}`),
+      { validation }
+    );
+  }
+
+  return {
+    artifacts,
+    generated,
+    minLocatorScore,
+    validation,
+    validationPath: artifacts?.jsonPath || validationPath,
+    markdownPath: artifacts?.mdPath || path.join(root, 'locator-validation.md'),
+    wroteInterface
+  };
 }
 
 export async function writeAdapterFromCapture(captureDir, options = {}) {

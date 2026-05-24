@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import path from 'node:path';
 import process from 'node:process';
-import { writeAdapterFromCapture } from './adapterGenerator.js';
+import { ensureLocatorValidationGate, writeAdapterFromCapture } from './adapterGenerator.js';
 
 function printHelp() {
   console.log(`Usage:
-  pnpm generate-adapter <capture-dir> --target <WebAI2API-dir> --id <adapter_id> [--target-kind webai2api|web2web-sidecar] [--model <model-id>] [--display-name <name>] [--worker-name <name>] [--template search_text]
+  pnpm generate-adapter <capture-dir> --target <WebAI2API-dir> --id <adapter_id> [--target-kind webai2api|web2web-sidecar] [--model <model-id>] [--display-name <name>] [--worker-name <name>] [--template search_text] [--min-locator-score 70] [--write-validation] [--force]
 
 Examples:
   pnpm generate-adapter captures/action --target ../WebAI2API --id bing_search_text --model bing-search --display-name "Bing Search"
@@ -24,6 +24,9 @@ function parseArgs(argv) {
     template: null,
     targetUrl: null,
     targetKind: 'webai2api',
+    minLocatorScore: 70,
+    writeValidation: false,
+    force: false,
     help: false
   };
 
@@ -47,6 +50,12 @@ function parseArgs(argv) {
       args.targetUrl = argv[++i];
     } else if (arg === '--target-kind') {
       args.targetKind = argv[++i];
+    } else if (arg === '--min-locator-score') {
+      args.minLocatorScore = Number(argv[++i]);
+    } else if (arg === '--write-validation') {
+      args.writeValidation = true;
+    } else if (arg === '--force') {
+      args.force = true;
     } else if (arg.startsWith('--')) {
       throw new Error(`Unknown option: ${arg}`);
     } else if (!args.captureDir) {
@@ -54,6 +63,10 @@ function parseArgs(argv) {
     } else {
       throw new Error(`Unexpected positional argument: ${arg}`);
     }
+  }
+
+  if (!Number.isFinite(args.minLocatorScore) || args.minLocatorScore < 0 || args.minLocatorScore > 100) {
+    throw new Error('--min-locator-score must be between 0 and 100');
   }
 
   return args;
@@ -70,7 +83,24 @@ async function main() {
     throw new Error('<capture-dir>, --target, and --id are required');
   }
 
-  const result = await writeAdapterFromCapture(path.resolve(args.captureDir), {
+  const captureDir = path.resolve(args.captureDir);
+  const locatorGate = await ensureLocatorValidationGate(captureDir, {
+    minLocatorScore: args.minLocatorScore,
+    writeValidation: args.writeValidation,
+    force: args.force
+  });
+
+  if (locatorGate.skipped) {
+    console.warn(`Locator validation skipped by --force (minimum score ${locatorGate.minLocatorScore}/100).`);
+  } else {
+    console.log(`Locator validation ${locatorGate.generated ? 'generated' : 'loaded'}:
+  ${locatorGate.validationPath}
+  Minimum required score: ${locatorGate.minLocatorScore}/100
+  Current minimum score: ${locatorGate.validation.minScore}/100
+  Status: passed${locatorGate.wroteInterface ? '\n  interface.json annotated with validation metadata' : ''}`);
+  }
+
+  const result = await writeAdapterFromCapture(captureDir, {
     target: path.resolve(args.target),
     id: args.id,
     model: args.model,
