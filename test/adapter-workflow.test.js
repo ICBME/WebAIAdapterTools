@@ -45,13 +45,23 @@ test('renderAdapterWorkflowMarkdown includes generated artifact paths', () => {
   const markdown = renderAdapterWorkflowMarkdown(plan, {
     captureIndexPath: 'captures/example/profile.json',
     interfacePath: 'captures/example/interface.json',
-    adapterPath: '../WebAI2API/src/backend/adapter/example_text.js'
+    adapterPath: '../WebAI2API/src/backend/adapter/example_text.js',
+    locatorValidation: {
+      path: 'captures/example/locator-validation.json'
+    },
+    steps: [
+      { id: 'collect', status: 'completed' },
+      { id: 'locator-validation', status: 'completed' }
+    ],
+    ok: true
   });
 
   assert.match(markdown, /Common WebAI2API Adapter Flow/);
   assert.match(markdown, /Adapter Generation Plan/);
   assert.match(markdown, /Open target page/);
   assert.match(markdown, /example_text\.js/);
+  assert.match(markdown, /Locator validation/);
+  assert.match(markdown, /Final verdict: passed/);
 });
 
 test('built-in ChatGPT reference adapter plan documents required interfaces and operations', () => {

@@ -216,6 +216,7 @@ export function attachNetworkRecorder(page, options = {}) {
   const captureSchema = Boolean(options.captureSchema || options.networkSchema);
   const startedAt = Date.now();
   const entries = [];
+  const pendingSchemaTasks = new Set();
   const byRequest = new WeakMap();
   let nextId = 1;
 
@@ -258,7 +259,7 @@ export function attachNetworkRecorder(page, options = {}) {
       if (captureSchema) {
         const contentType = responseContentType(response);
         if (JSON_CONTENT_PATTERN.test(contentType) || SSE_CONTENT_PATTERN.test(contentType) || TEXT_CONTENT_PATTERN.test(contentType)) {
-          response.text()
+          const task = response.text()
             .then(text => {
               const schema = schemaForText(text, contentType, options);
               if (schema) entry.responseSchema = schema;
@@ -269,7 +270,11 @@ export function attachNetworkRecorder(page, options = {}) {
                 format: 'unavailable',
                 error: compact(error.message, 120)
               };
+            })
+            .finally(() => {
+              pendingSchemaTasks.delete(task);
             });
+          pendingSchemaTasks.add(task);
         }
       }
     }
@@ -290,11 +295,15 @@ export function attachNetworkRecorder(page, options = {}) {
 
   function reset() {
     entries.length = 0;
+    pendingSchemaTasks.clear();
     nextId = 1;
   }
 
   return {
     reset,
+    async flush() {
+      await Promise.allSettled(Array.from(pendingSchemaTasks));
+    },
     getSummary() {
       return getSummary();
     }

@@ -77,6 +77,11 @@ function aggregateSegmentEvents(segments) {
   return events;
 }
 
+async function flushedNetworkSummary(networkRecorder) {
+  await networkRecorder.flush();
+  return networkRecorder.getSummary();
+}
+
 function buildActionCapture({ mode, actionRecorder, segments }) {
   const first = segments[0];
   const last = segments[segments.length - 1];
@@ -195,6 +200,7 @@ export async function collectPageProfile(options) {
     });
 
     if ((recordAction || aiRecordAction) && (waitForUser || browserControls || aiRecordAction)) {
+      await networkRecorder.flush();
       const initialNetwork = networkRecorder.getSummary();
       const segments = [];
 
@@ -242,7 +248,7 @@ export async function collectPageProfile(options) {
           after: snapshotParts(afterAction),
           diff: diffSnapshots(beforeAction, afterAction),
           events: await actionRecorder.getEvents(),
-          network: networkRecorder.getSummary(),
+          network: await flushedNetworkSummary(networkRecorder),
           controller: controllerLog
         });
         if (controlPanel) await controlPanel.setState({ phase: 'done' });
@@ -287,7 +293,7 @@ export async function collectPageProfile(options) {
             after: snapshotParts(afterAction),
             diff: diffSnapshots(beforeAction, afterAction),
             events: await actionRecorder.getEvents(),
-            network: networkRecorder.getSummary()
+            network: await flushedNetworkSummary(networkRecorder)
           });
           if (finishSignal.type === 'finish-capture') break;
         }
@@ -318,7 +324,7 @@ export async function collectPageProfile(options) {
             after: snapshotParts(afterAction),
             diff: diffSnapshots(beforeAction, afterAction),
             events: await actionRecorder.getEvents(),
-            network: networkRecorder.getSummary()
+            network: await flushedNetworkSummary(networkRecorder)
           });
           beforeAction = afterAction;
         }
@@ -331,7 +337,7 @@ export async function collectPageProfile(options) {
       });
       profile.network = initialNetwork;
     } else {
-      profile.network = networkRecorder.getSummary();
+      profile.network = await flushedNetworkSummary(networkRecorder);
     }
     return profile;
   } finally {

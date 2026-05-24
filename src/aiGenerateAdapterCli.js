@@ -9,7 +9,7 @@ import { DEFAULT_WINDOW_SIZE, parseWindowSize } from './size.js';
 
 function printHelp() {
   console.log(`Usage:
-  pnpm ai-generate-adapter <url> --out <capture-dir> --target <WebAI2API-dir> --id <adapter_id> [--target-kind webai2api|web2web-sidecar] [--plan webai2api-chatgpt-reference] [--ai-goal <text>] [--ai-input <text>] [--ai-provider raw|langgraph] [--ai-mode hybrid] [--model <model-id>] [--display-name <name>] [--verify] [--write-diagnosis]
+  pnpm ai-generate-adapter <url> --out <capture-dir> --target <WebAI2API-dir> --id <adapter_id> [--target-kind webai2api|web2web-sidecar] [--plan webai2api-chatgpt-reference] [--ai-goal <text>] [--ai-input <text>] [--ai-provider raw|langgraph] [--ai-mode hybrid] [--model <model-id>] [--display-name <name>] [--min-locator-score 70] [--verify] [--write-diagnosis]
 
 Examples:
   pnpm ai-generate-adapter https://example.com/app --out captures/example-ai --target ../WebAI2API --id example_text --plan webai2api-chatgpt-reference --ai-input "hello"
@@ -45,6 +45,9 @@ function parseArgs(argv) {
     aiMaxSteps: null,
     aiModel: null,
     aiMinConfidence: 0.7,
+    minLocatorScore: 70,
+    writeValidation: true,
+    forceLocatorValidation: false,
     verify: false,
     verifyPrompt: null,
     verifyModel: null,
@@ -85,6 +88,9 @@ function parseArgs(argv) {
     else if (arg === '--ai-max-steps') args.aiMaxSteps = Number(argv[++i]);
     else if (arg === '--ai-model') args.aiModel = argv[++i];
     else if (arg === '--ai-min-confidence') args.aiMinConfidence = Number(argv[++i]);
+    else if (arg === '--min-locator-score') args.minLocatorScore = Number(argv[++i]);
+    else if (arg === '--no-write-validation') args.writeValidation = false;
+    else if (arg === '--force-locator-validation') args.forceLocatorValidation = true;
     else if (arg === '--verify') args.verify = true;
     else if (arg === '--verify-prompt') args.verifyPrompt = argv[++i];
     else if (arg === '--verify-model') args.verifyModel = argv[++i];
@@ -116,6 +122,9 @@ function parseArgs(argv) {
     if (args.aiMaxSteps !== null && (!Number.isInteger(args.aiMaxSteps) || args.aiMaxSteps <= 0)) throw new Error('--ai-max-steps must be a positive integer');
     if (!Number.isFinite(args.aiMinConfidence) || args.aiMinConfidence < 0 || args.aiMinConfidence > 1) {
       throw new Error('--ai-min-confidence must be a number between 0 and 1');
+    }
+    if (!Number.isFinite(args.minLocatorScore) || args.minLocatorScore < 0 || args.minLocatorScore > 100) {
+      throw new Error('--min-locator-score must be between 0 and 100');
     }
   }
 

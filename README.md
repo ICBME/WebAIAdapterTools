@@ -48,6 +48,7 @@ Outputs:
 - `actions/segments.json`: per-action segment index when multiple actions are recorded.
 - `actions/segments/<action-id>/events.json`, `diff.json`, `network.json`: per-action logs when action recording is used.
 - `actions/segments/<action-id>/controller.json`: AI controller log when `--ai-record-action` is used.
+- `capture-workflow.json` + `capture-workflow.md`: end-to-end AI workflow record when `pnpm ai-generate-adapter` is used.
 - `interface.json` + `interface.md`: generated interface plan after running `pnpm analyze`.
 - `profile.html`: offline human review report.
 
@@ -320,17 +321,21 @@ The built-in `webai2api-chatgpt-reference` plan is derived from `WebAI2API/src/b
 The command runs:
 
 ```text
-AI action capture -> analyze capture -> generate adapter -> optional verify
+AI action capture -> analyze capture -> validate locators -> generate adapter -> optional verify
 ```
 
 Generated review files:
 
 - `adapter-workflow.json`
 - `adapter-workflow.md`
+- `capture-workflow.json`
+- `capture-workflow.md`
 - `adapter-plan.json`
 - `adapter-plan.md`
-- normal capture files, `interface.json`, `interface.md`
+- normal capture files, `interface.json`, `interface.md`, `locator-validation.json`, `locator-validation.md`
 - `WebAI2API/src/backend/adapter/<adapter_id>.js`
+
+By default, `ai-generate-adapter` now uses the same locator validation gate as `generate-adapter` before writing adapter code. Use `--min-locator-score <0-100>` to tune the gate, `--no-write-validation` to avoid annotating `interface.json`, or `--force-locator-validation` for an intentional one-off generation.
 
 Add `--verify` to immediately run the generated adapter:
 

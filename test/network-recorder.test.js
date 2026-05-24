@@ -38,7 +38,7 @@ test('network schema capture stores structure without raw values or sensitive he
   const request = fakeRequest();
   page.emit('request', request);
   page.emit('response', fakeResponse(request));
-  await new Promise(resolve => setTimeout(resolve, 10));
+  await recorder.flush();
 
   const summary = recorder.getSummary();
   assert.equal(summary.requests.length, 1);

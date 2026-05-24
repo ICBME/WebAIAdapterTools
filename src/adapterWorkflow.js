@@ -3,7 +3,7 @@ import path from 'node:path';
 import { collectPageProfile, defaultUserDataDir } from './collector.js';
 import { writeCaptureArtifacts } from './artifacts.js';
 import { buildInterfacePlan, loadCaptureBundle, writeInterfaceArtifacts } from './interfaceAnalyzer.js';
-import { writeAdapterFromCapture } from './adapterGenerator.js';
+import { ensureLocatorValidationGate, writeAdapterFromCapture } from './adapterGenerator.js';
 import { verifyAdapter } from './adapterVerifier.js';
 import { DEFAULT_WINDOW_SIZE } from './size.js';
 import {
@@ -139,9 +139,17 @@ export function renderAdapterWorkflowMarkdown(workflow, result = {}) {
   lines.push('## Generated Artifacts');
   if (result.captureIndexPath) lines.push(`- Capture index: \`${result.captureIndexPath}\``);
   if (result.interfacePath) lines.push(`- Interface plan: \`${result.interfacePath}\``);
+  if (result.locatorValidation?.path) lines.push(`- Locator validation: \`${result.locatorValidation.path}\``);
   if (result.adapterPath) lines.push(`- Adapter: \`${result.adapterPath}\``);
   if (result.verify?.artifacts?.outDir) lines.push(`- Verify artifacts: \`${result.verify.artifacts.outDir}\``);
   if (result.error) lines.push(`- Error: ${result.error}`);
+  lines.push('');
+  lines.push('## Workflow Status');
+  for (const step of result.steps || []) {
+    const detail = step.error ? ` - ${step.error}` : '';
+    lines.push(`- ${step.status || 'unknown'}: ${step.id}${detail}`);
+  }
+  if (result.ok !== undefined) lines.push(`- Final verdict: ${result.ok ? 'passed' : 'failed'}`);
   lines.push('');
   return lines.join('\n');
 }
@@ -150,9 +158,18 @@ async function writeWorkflowArtifacts(captureDir, workflow, result = {}) {
   await fs.mkdir(captureDir, { recursive: true });
   const jsonPath = path.join(captureDir, 'adapter-workflow.json');
   const mdPath = path.join(captureDir, 'adapter-workflow.md');
+  const captureJsonPath = path.join(captureDir, 'capture-workflow.json');
+  const captureMdPath = path.join(captureDir, 'capture-workflow.md');
+  const payload = {
+    schemaVersion: 'web-adapter-tools.capture-workflow.v1',
+    workflow,
+    result
+  };
   await fs.writeFile(jsonPath, JSON.stringify({ workflow, result }, null, JSON_SPACE), 'utf8');
   await fs.writeFile(mdPath, renderAdapterWorkflowMarkdown(workflow, result), 'utf8');
-  const artifacts = { jsonPath, mdPath };
+  await fs.writeFile(captureJsonPath, JSON.stringify(payload, null, JSON_SPACE), 'utf8');
+  await fs.writeFile(captureMdPath, renderAdapterWorkflowMarkdown(workflow, result), 'utf8');
+  const artifacts = { jsonPath, mdPath, captureJsonPath, captureMdPath };
   if (result.fullAdapterPlan) {
     const planJsonPath = path.join(captureDir, 'adapter-plan.json');
     const planMdPath = path.join(captureDir, 'adapter-plan.md');
@@ -232,6 +249,27 @@ export async function runAiAdapterWorkflow(options = {}) {
     };
     result.steps[result.steps.length - 1].status = 'completed';
 
+    result.steps.push({ id: 'locator-validation', status: 'started', at: new Date().toISOString() });
+    const locatorGate = await ensureLocatorValidationGate(captureDir, {
+      minLocatorScore: options.minLocatorScore ?? 70,
+      writeValidation: options.writeValidation ?? true,
+      force: Boolean(options.forceLocatorValidation || options.force)
+    });
+    result.locatorValidation = {
+      skipped: Boolean(locatorGate.skipped),
+      generated: Boolean(locatorGate.generated),
+      minLocatorScore: locatorGate.minLocatorScore,
+      path: locatorGate.validationPath || null,
+      markdownPath: locatorGate.markdownPath || null,
+      wroteInterface: Boolean(locatorGate.wroteInterface),
+      ok: locatorGate.skipped ? null : Boolean(locatorGate.validation?.ok),
+      locatorCount: locatorGate.validation?.locatorCount || 0,
+      minScore: locatorGate.validation?.minScore || 0,
+      averageScore: locatorGate.validation?.averageScore || 0,
+      unstableCount: locatorGate.validation?.unstableCount || 0
+    };
+    result.steps[result.steps.length - 1].status = 'completed';
+
     result.steps.push({ id: 'generate-adapter', status: 'started', at: new Date().toISOString() });
     const adapter = await writeAdapterFromCapture(captureDir, {
       target: targetRoot,
@@ -281,7 +319,25 @@ export async function runAiAdapterWorkflow(options = {}) {
     result.completedAt = new Date().toISOString();
     result.ok = false;
     result.error = error.message;
-    if (result.steps.length) result.steps[result.steps.length - 1].status = 'failed';
+    if (error.validation) {
+      result.locatorValidation = {
+        skipped: false,
+        generated: false,
+        minLocatorScore: error.validation.threshold,
+        path: path.join(captureDir, 'locator-validation.json'),
+        markdownPath: path.join(captureDir, 'locator-validation.md'),
+        wroteInterface: false,
+        ok: Boolean(error.validation.ok),
+        locatorCount: error.validation.locatorCount || 0,
+        minScore: error.validation.minScore || 0,
+        averageScore: error.validation.averageScore || 0,
+        unstableCount: error.validation.unstableCount || 0
+      };
+    }
+    if (result.steps.length) {
+      result.steps[result.steps.length - 1].status = 'failed';
+      result.steps[result.steps.length - 1].error = error.message;
+    }
     result.workflowArtifacts = await writeWorkflowArtifacts(captureDir, workflow, result);
     throw Object.assign(error, { workflow, result });
   }
