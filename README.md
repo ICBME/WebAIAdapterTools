@@ -124,7 +124,7 @@ The command also prints a minimal worker config snippet that can be merged into 
 After `pnpm analyze`, run locator validation before generating an adapter:
 
 ```bash
-pnpm validate-interface <capture-dir> [--min-score 70] [--write] [--strict]
+pnpm validate-interface <capture-dir> [--min-score 70] [--write] [--strict] [--dynamic] [--headless] [--target-url <url>] [--fixture <path-or-url>] [--timeout 30000]
 ```
 
 Examples:
@@ -133,6 +133,7 @@ Examples:
 pnpm validate-interface captures/action
 pnpm validate-interface captures/action --write
 pnpm validate-interface captures/action --min-score 80 --strict
+pnpm validate-interface captures/action --dynamic --headless --timeout 30000
 ```
 
 The validator reads the capture bundle and `interface.json`, then scores each locator against the available `before`, `after`, or `current` element snapshots. Scores combine:
@@ -145,6 +146,8 @@ The validator reads the capture bundle and `interface.json`, then scores each lo
 - original locator confidence
 
 It writes `locator-validation.json` and `locator-validation.md`. With `--write`, it also annotates `interface.json` with a top-level `locatorValidation` summary and per-locator `stability` metadata. With `--strict`, the command exits non-zero when any locator falls below `--min-score`.
+
+Pass `--dynamic` to open the capture URL or `--target-url`/`--fixture` in a browser and validate locators against a live Playwright page. Dynamic validation checks real locator count, visibility, editability, and enabled state without clicking, typing, uploading, or submitting. Output locators are allowed to be missing before submit, but their dynamic result is recorded as a warning. Dynamic scores are merged into the same validation artifacts and are also written back to per-locator `stability.dynamic` when `--write` is used.
 
 ## Verify A Generated Adapter
 

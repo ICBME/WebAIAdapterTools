@@ -247,7 +247,7 @@ function validateOneLocator(locator, kind, snapshots) {
   };
 }
 
-function collectLocatorRefs(plan) {
+export function collectLocatorRefs(plan) {
   const refs = [];
   for (const [index, input] of (plan.operation?.inputs || []).entries()) {
     if (input.locator?.value) {
@@ -352,7 +352,8 @@ export function applyLocatorValidation(plan, validation) {
     minScore: validation.minScore,
     averageScore: validation.averageScore,
     ok: validation.ok,
-    unstableCount: validation.unstableCount
+    unstableCount: validation.unstableCount,
+    dynamic: validation.dynamic || null
   };
   for (const result of validation.results || []) {
     setPath(cloned, result.path, {
@@ -361,7 +362,8 @@ export function applyLocatorValidation(plan, validation) {
       coverage: result.coverage,
       uniqueCoverage: result.uniqueCoverage,
       consistent: result.consistent,
-      warnings: result.warnings
+      warnings: result.warnings,
+      dynamic: result.dynamic || null
     });
   }
   return cloned;
@@ -376,6 +378,14 @@ export function renderLocatorValidationMarkdown(validation) {
   lines.push(`Snapshots: ${validation.snapshotCount}`);
   lines.push(`Average score: ${validation.averageScore}/100`);
   lines.push(`Minimum score: ${validation.minScore}/100`);
+  if (validation.dynamic?.enabled) {
+    lines.push('');
+    lines.push('## Dynamic Validation');
+    lines.push(`Dynamic status: ${validation.dynamic.ok ? 'passed' : 'needs review'}`);
+    lines.push(`Dynamic URL: ${validation.dynamic.url || '(unknown)'}`);
+    lines.push(`Dynamic average score: ${validation.dynamic.averageScore}/100`);
+    lines.push(`Dynamic minimum score: ${validation.dynamic.minScore}/100`);
+  }
   lines.push('');
   lines.push('## Results');
   for (const result of validation.results || []) {
@@ -384,6 +394,10 @@ export function renderLocatorValidationMarkdown(validation) {
     const snapshotText = result.snapshots.map(snapshot => `${snapshot.name}: ${snapshot.matchCount}`).join(', ');
     lines.push(`  - matches: ${snapshotText}`);
     for (const warning of result.warnings || []) lines.push(`  - warning: ${warning}`);
+    if (result.dynamic) {
+      lines.push(`  - dynamic: ${result.dynamic.status} ${result.dynamic.score}/100 count=${result.dynamic.checks?.count ?? 0}`);
+      if (result.dynamic.error) lines.push(`  - dynamic error: ${result.dynamic.error}`);
+    }
   }
   lines.push('');
   return lines.join('\n');
