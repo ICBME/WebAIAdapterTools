@@ -236,7 +236,7 @@ export async function runDynamicLocatorValidation(plan, profile, options = {}) {
     i_know_what_im_doing: true
   });
   try {
-    const page = browser.pages()[0] || await browser.newPage();
+    const page = await browser.newPage();
     await page.goto(url, { waitUntil: options.waitUntil || 'load', timeout: Number(options.timeout || 30000) });
     return await validateInterfaceLocatorsDynamic(plan, page, {
       ...options,
