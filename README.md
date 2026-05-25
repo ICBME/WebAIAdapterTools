@@ -355,7 +355,9 @@ Generated review files:
 - normal capture files, `interface.json`, `interface.md`, `locator-validation.json`, `locator-validation.md`
 - `WebAI2API/src/backend/adapter/<adapter_id>.js`
 
-By default, `ai-generate-adapter` now uses the same locator validation gate as `generate-adapter` before writing adapter code. Use `--min-locator-score <0-100>` to tune the gate, `--no-write-validation` to avoid annotating `interface.json`, or `--force-locator-validation` for an intentional one-off generation.
+By default, `ai-generate-adapter` now uses the same static locator validation gate as `generate-adapter` before writing adapter code. Add `--dynamic-validation` to also open the target page with Camoufox and validate locators against a live page before generation. Use `--min-locator-score <0-100>` to tune the gate, `--no-write-validation` to avoid annotating `interface.json`, or `--force-locator-validation` for an intentional one-off generation.
+
+Dynamic validation options mirror `validate-interface`: `--dynamic-validation-timeout <ms>`, `--dynamic-validation-target-url <url>`, `--dynamic-validation-fixture <path-or-url>`, `--dynamic-validation-user-data-dir <dir>`, `--dynamic-validation-browser-path <path>`, and `--dynamic-validation-headless`.
 
 Add `--verify` to immediately run the generated adapter:
 

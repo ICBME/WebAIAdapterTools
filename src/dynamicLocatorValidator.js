@@ -81,11 +81,14 @@ export function scoreDynamicChecks(kind, checks, options = {}) {
   }
   let score = checks.count === 1 ? 45 : 30;
   if (checks.visible) score += 20;
-  if (kind === 'input') {
+  if (kind === 'input' || kind === 'textInput') {
     if (checks.editable) score += 25;
     else if (checks.enabled) score += 10;
-  } else if (kind === 'submit' || kind === 'upload') {
+  } else if (kind === 'submit' || kind === 'upload' || kind === 'select' || kind === 'toggle') {
     if (checks.enabled) score += 25;
+  } else if (kind === 'hover' || kind === 'scroll' || kind === 'waitSignal') {
+    if (checks.attached) score += 10;
+    if (checks.enabled && kind === 'hover') score += 10;
   } else if (checks.count === 1) {
     score += 10;
   }

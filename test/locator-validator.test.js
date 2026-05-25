@@ -148,3 +148,42 @@ test('loadLocatorValidationInputs writes artifacts and annotates interface plans
   assert.equal(annotated.locatorValidation.locatorCount, validation.locatorCount);
   assert.equal(annotated.operation.inputs[0].locator.stability.status, 'stable');
 });
+
+test('validateInterfaceLocators includes DSL action step locators', () => {
+  const plan = interfacePlan();
+  plan.operation.steps = [
+    {
+      type: 'select',
+      locator: { value: 'page.locator("#model")', confidence: 0.9 }
+    },
+    {
+      type: 'check',
+      locator: { value: 'page.locator("#agree")', confidence: 0.9 }
+    },
+    {
+      type: 'waitFor',
+      locator: { value: 'page.locator("#output")', confidence: 0.7 }
+    }
+  ];
+  const snapshot = {
+    name: 'current',
+    elements: [
+      element({ idRef: 'el_1', tag: 'textarea', placeholder: 'Ask', labelText: 'Ask', cssPath: '#prompt', categories: ['input'] }),
+      element({ idRef: 'el_2', tag: 'button', text: 'Send', ariaLabel: 'Send', cssPath: '#send', categories: ['button'] }),
+      element({ idRef: 'el_3', tag: 'select', ariaLabel: 'Model', cssPath: '#model', categories: ['select'] }),
+      element({ idRef: 'el_4', tag: 'input', type: 'checkbox', ariaLabel: 'Agree', cssPath: '#agree', categories: ['toggle'] }),
+      element({ idRef: 'el_5', tag: 'section', ariaLabel: 'Assistant result', cssPath: '#output', categories: ['output'] })
+    ]
+  };
+
+  const validation = validateInterfaceLocators(plan, [snapshot], { minScore: 70 });
+  const select = validation.results.find(result => result.path === 'operation.steps[0].locator');
+  const toggle = validation.results.find(result => result.path === 'operation.steps[1].locator');
+  const waitSignal = validation.results.find(result => result.path === 'operation.steps[2].locator');
+
+  assert.equal(select.kind, 'select');
+  assert.equal(toggle.kind, 'toggle');
+  assert.equal(waitSignal.kind, 'waitSignal');
+  assert.equal(select.status, 'stable');
+  assert.equal(toggle.status, 'stable');
+});

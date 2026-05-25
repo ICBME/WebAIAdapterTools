@@ -7,6 +7,10 @@ import {
   validateInterfaceLocators,
   writeLocatorValidationArtifacts
 } from './locatorValidator.js';
+import {
+  mergeDynamicLocatorValidation,
+  runDynamicLocatorValidation
+} from './dynamicLocatorValidator.js';
 
 const DEFAULT_MODEL_ID = 'generated-browser-text';
 const TARGET_KINDS = new Set(['webai2api', 'web2web-sidecar']);
@@ -407,12 +411,21 @@ function normalizeLocatorValidation(validation, minLocatorScore) {
     throw new Error('locator-validation.json 缺少 results');
   }
   const results = validation.results;
-  const scores = results.map(result => Number(result.stableScore || 0));
+  const hasDynamic = Boolean(validation.dynamic?.enabled);
+  const scores = results.map(result => {
+    const staticScore = Number(result.stableScore || 0);
+    if (!hasDynamic || result.dynamicScore === undefined) return staticScore;
+    return Math.min(staticScore, Number(result.dynamicScore || 0));
+  });
   const minScore = scores.length ? Math.min(...scores) : 0;
   const averageScore = scores.length
     ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length)
     : 0;
-  const unstable = results.filter(result => Number(result.stableScore || 0) < minLocatorScore);
+  const unstable = results.filter(result => {
+    const staticWeak = Number(result.stableScore || 0) < minLocatorScore;
+    const dynamicWeak = hasDynamic && result.dynamicScore !== undefined && Number(result.dynamicScore || 0) < minLocatorScore;
+    return staticWeak || dynamicWeak;
+  });
   return {
     ...validation,
     threshold: minLocatorScore,
@@ -426,9 +439,16 @@ function normalizeLocatorValidation(validation, minLocatorScore) {
 
 function locatorFailureDetails(validation) {
   return (validation.results || [])
-    .filter(result => Number(result.stableScore || 0) < validation.threshold)
+    .filter(result => {
+      const staticWeak = Number(result.stableScore || 0) < validation.threshold;
+      const dynamicWeak = validation.dynamic?.enabled && result.dynamicScore !== undefined && Number(result.dynamicScore || 0) < validation.threshold;
+      return staticWeak || dynamicWeak;
+    })
     .slice(0, 8)
-    .map(result => `  - ${result.path}: ${result.stableScore}/100 ${result.expression || ''}`.trimEnd())
+    .map(result => {
+      const dynamic = result.dynamicScore !== undefined ? ` dynamic=${result.dynamicScore}/100` : '';
+      return `  - ${result.path}: static=${result.stableScore}/100${dynamic} ${result.expression || ''}`.trimEnd();
+    })
     .join('\n');
 }
 
@@ -458,6 +478,33 @@ export async function ensureLocatorValidationGate(captureDir, options = {}) {
     plan = inputs.plan;
     interfacePath = inputs.interfacePath;
     validation = validateInterfaceLocators(plan, inputs.snapshots, { minScore: minLocatorScore });
+    artifacts = await writeLocatorValidationArtifacts(validation, root);
+    generated = true;
+  }
+
+  if (options.dynamicValidation) {
+    if (!plan) {
+      const inputs = await loadLocatorValidationInputs(root, {
+        interfacePath: options.interfacePath
+      });
+      plan = inputs.plan;
+      interfacePath = inputs.interfacePath;
+    }
+    const inputs = await loadLocatorValidationInputs(root, {
+      interfacePath: options.interfacePath,
+      plan
+    });
+    const dynamic = await runDynamicLocatorValidation(plan, inputs.profile, {
+      minScore: minLocatorScore,
+      timeout: options.dynamicTimeout,
+      targetUrl: options.dynamicTargetUrl || options.targetUrl,
+      fixture: options.dynamicFixture,
+      userDataDir: options.dynamicUserDataDir,
+      browserPath: options.dynamicBrowserPath || options.browserPath,
+      headless: options.dynamicHeadless ?? options.headless ?? true,
+      waitUntil: options.dynamicWaitUntil
+    });
+    validation = mergeDynamicLocatorValidation(validation, dynamic);
     artifacts = await writeLocatorValidationArtifacts(validation, root);
     generated = true;
   }

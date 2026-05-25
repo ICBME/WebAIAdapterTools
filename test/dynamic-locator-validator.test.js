@@ -120,6 +120,42 @@ test('validateInterfaceLocatorsDynamic and mergeDynamicLocatorValidation attach 
   assert.equal(merged.results[0].dynamic.status, 'stable');
 });
 
+test('validateInterfaceLocatorsDynamic scores DSL action step locators', async () => {
+  const dslPlan = plan();
+  dslPlan.operation.steps = [
+    { type: 'select', locator: { value: 'page.locator("#model")' } },
+    { type: 'check', locator: { value: 'page.locator("#agree")' } },
+    { type: 'hover', locator: { value: 'page.locator("#menu")' } }
+  ];
+  const page = new FakePage({
+    role: {
+      textbox: new FakeLocator({ count: 1, visible: true, enabled: true, editable: true }),
+      button: new FakeLocator({ count: 1, visible: true, enabled: true })
+    },
+    css: {
+      '#output': new FakeLocator({ count: 0 }),
+      '#model': new FakeLocator({ count: 1, visible: true, enabled: true }),
+      '#agree': new FakeLocator({ count: 1, visible: true, enabled: true }),
+      '#menu': new FakeLocator({ count: 1, visible: true, enabled: true })
+    }
+  });
+
+  const dynamic = await validateInterfaceLocatorsDynamic(dslPlan, page, {
+    url: 'https://example.com/app',
+    timeout: 1000
+  });
+  const select = dynamic.results.find(result => result.path === 'operation.steps[0].locator');
+  const toggle = dynamic.results.find(result => result.path === 'operation.steps[1].locator');
+  const hover = dynamic.results.find(result => result.path === 'operation.steps[2].locator');
+
+  assert.equal(select.kind, 'select');
+  assert.equal(toggle.kind, 'toggle');
+  assert.equal(hover.kind, 'hover');
+  assert.equal(select.status, 'stable');
+  assert.equal(toggle.status, 'stable');
+  assert.equal(hover.status, 'stable');
+});
+
 class FakePage {
   constructor({ role = {}, css = {} } = {}) {
     this.role = role;

@@ -253,7 +253,14 @@ export async function runAiAdapterWorkflow(options = {}) {
     const locatorGate = await ensureLocatorValidationGate(captureDir, {
       minLocatorScore: options.minLocatorScore ?? 70,
       writeValidation: options.writeValidation ?? true,
-      force: Boolean(options.forceLocatorValidation || options.force)
+      force: Boolean(options.forceLocatorValidation || options.force),
+      dynamicValidation: Boolean(options.dynamicValidation),
+      dynamicTimeout: options.dynamicValidationTimeout || options.timeout,
+      dynamicTargetUrl: options.dynamicValidationTargetUrl || options.targetUrl,
+      dynamicFixture: options.dynamicValidationFixture,
+      dynamicUserDataDir: options.dynamicValidationUserDataDir || options.userDataDir,
+      dynamicBrowserPath: options.dynamicValidationBrowserPath || options.browserPath,
+      dynamicHeadless: options.dynamicValidationHeadless ?? options.headless ?? true
     });
     result.locatorValidation = {
       skipped: Boolean(locatorGate.skipped),
@@ -266,7 +273,8 @@ export async function runAiAdapterWorkflow(options = {}) {
       locatorCount: locatorGate.validation?.locatorCount || 0,
       minScore: locatorGate.validation?.minScore || 0,
       averageScore: locatorGate.validation?.averageScore || 0,
-      unstableCount: locatorGate.validation?.unstableCount || 0
+      unstableCount: locatorGate.validation?.unstableCount || 0,
+      dynamic: locatorGate.validation?.dynamic || null
     };
     result.steps[result.steps.length - 1].status = 'completed';
 
@@ -331,7 +339,8 @@ export async function runAiAdapterWorkflow(options = {}) {
         locatorCount: error.validation.locatorCount || 0,
         minScore: error.validation.minScore || 0,
         averageScore: error.validation.averageScore || 0,
-        unstableCount: error.validation.unstableCount || 0
+        unstableCount: error.validation.unstableCount || 0,
+        dynamic: error.validation.dynamic || null
       };
     }
     if (result.steps.length) {

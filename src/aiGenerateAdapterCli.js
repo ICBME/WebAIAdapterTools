@@ -9,7 +9,7 @@ import { DEFAULT_WINDOW_SIZE, parseWindowSize } from './size.js';
 
 function printHelp() {
   console.log(`Usage:
-  pnpm ai-generate-adapter <url> --out <capture-dir> --target <WebAI2API-dir> --id <adapter_id> [--target-kind webai2api|web2web-sidecar] [--plan webai2api-chatgpt-reference] [--ai-goal <text>] [--ai-input <text>] [--ai-provider raw|langgraph] [--ai-mode hybrid] [--model <model-id>] [--display-name <name>] [--min-locator-score 70] [--verify] [--write-diagnosis]
+  pnpm ai-generate-adapter <url> --out <capture-dir> --target <WebAI2API-dir> --id <adapter_id> [--target-kind webai2api|web2web-sidecar] [--plan webai2api-chatgpt-reference] [--ai-goal <text>] [--ai-input <text>] [--ai-provider raw|langgraph] [--ai-mode hybrid] [--model <model-id>] [--display-name <name>] [--min-locator-score 70] [--dynamic-validation] [--verify] [--write-diagnosis]
 
 Examples:
   pnpm ai-generate-adapter https://example.com/app --out captures/example-ai --target ../WebAI2API --id example_text --plan webai2api-chatgpt-reference --ai-input "hello"
@@ -48,6 +48,13 @@ function parseArgs(argv) {
     minLocatorScore: 70,
     writeValidation: true,
     forceLocatorValidation: false,
+    dynamicValidation: false,
+    dynamicValidationTimeout: null,
+    dynamicValidationTargetUrl: null,
+    dynamicValidationFixture: null,
+    dynamicValidationUserDataDir: null,
+    dynamicValidationBrowserPath: null,
+    dynamicValidationHeadless: null,
     verify: false,
     verifyPrompt: null,
     verifyModel: null,
@@ -91,6 +98,13 @@ function parseArgs(argv) {
     else if (arg === '--min-locator-score') args.minLocatorScore = Number(argv[++i]);
     else if (arg === '--no-write-validation') args.writeValidation = false;
     else if (arg === '--force-locator-validation') args.forceLocatorValidation = true;
+    else if (arg === '--dynamic-validation') args.dynamicValidation = true;
+    else if (arg === '--dynamic-validation-timeout') args.dynamicValidationTimeout = Number(argv[++i]);
+    else if (arg === '--dynamic-validation-target-url') args.dynamicValidationTargetUrl = argv[++i];
+    else if (arg === '--dynamic-validation-fixture') args.dynamicValidationFixture = argv[++i];
+    else if (arg === '--dynamic-validation-user-data-dir') args.dynamicValidationUserDataDir = argv[++i];
+    else if (arg === '--dynamic-validation-browser-path') args.dynamicValidationBrowserPath = argv[++i];
+    else if (arg === '--dynamic-validation-headless') args.dynamicValidationHeadless = true;
     else if (arg === '--verify') args.verify = true;
     else if (arg === '--verify-prompt') args.verifyPrompt = argv[++i];
     else if (arg === '--verify-model') args.verifyModel = argv[++i];
@@ -126,6 +140,9 @@ function parseArgs(argv) {
     if (!Number.isFinite(args.minLocatorScore) || args.minLocatorScore < 0 || args.minLocatorScore > 100) {
       throw new Error('--min-locator-score must be between 0 and 100');
     }
+    if (args.dynamicValidationTimeout !== null && (!Number.isFinite(args.dynamicValidationTimeout) || args.dynamicValidationTimeout <= 0)) {
+      throw new Error('--dynamic-validation-timeout must be a positive number');
+    }
   }
 
   return args;
@@ -157,6 +174,8 @@ async function main() {
     target: path.resolve(args.target),
     userDataDir: path.resolve(args.userDataDir),
     browserPath: args.browserPath ? path.resolve(args.browserPath) : null,
+    dynamicValidationUserDataDir: args.dynamicValidationUserDataDir ? path.resolve(args.dynamicValidationUserDataDir) : null,
+    dynamicValidationBrowserPath: args.dynamicValidationBrowserPath ? path.resolve(args.dynamicValidationBrowserPath) : null,
     visualOut: args.visualOut ? path.resolve(args.visualOut) : null,
     waitForUser: waitForEnter
   });

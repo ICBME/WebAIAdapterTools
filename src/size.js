@@ -1,6 +1,6 @@
 export const DEFAULT_WINDOW_SIZE = {
-  width: 1280,
-  height: 720
+  width: 1000,
+  height: 620
 };
 
 export function parseWindowSize(value) {

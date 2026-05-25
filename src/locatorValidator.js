@@ -154,11 +154,28 @@ function matchLocator(elements, expression) {
 }
 
 function expectedCategories(kind) {
-  if (kind === 'input') return ['input'];
+  if (kind === 'input' || kind === 'textInput') return ['input'];
+  if (kind === 'select') return ['select'];
+  if (kind === 'toggle') return ['toggle'];
   if (kind === 'upload') return ['fileInput', 'button', 'link'];
   if (kind === 'submit') return ['button', 'input'];
   if (kind === 'output') return ['output'];
+  if (kind === 'waitSignal') return ['output', 'input', 'button', 'select', 'toggle'];
+  if (kind === 'hover') return ['button', 'link', 'input', 'select', 'toggle', 'output'];
+  if (kind === 'scroll') return ['output'];
   return [];
+}
+
+function kindForStep(step = {}) {
+  if (step.type === 'fill' || step.type === 'type' || step.type === 'clear') return 'textInput';
+  if (step.type === 'select') return 'select';
+  if (step.type === 'check' || step.type === 'uncheck') return 'toggle';
+  if (step.type === 'upload') return 'upload';
+  if (step.type === 'click' || step.type === 'press') return 'submit';
+  if (step.type === 'hover') return 'hover';
+  if (step.type === 'scroll') return 'scroll';
+  if (step.type === 'wait' || step.type === 'waitFor') return 'waitSignal';
+  return 'input';
 }
 
 function elementSignature(element) {
@@ -261,10 +278,13 @@ export function collectLocatorRefs(plan) {
     if (output.locator?.value) refs.push({ path: `operation.outputs[${index}].locator`, kind: 'output', locator: output.locator });
   }
   for (const [index, step] of (plan.operation?.setupSteps || []).entries()) {
-    if (step.locator?.value) refs.push({ path: `operation.setupSteps[${index}].locator`, kind: step.type === 'upload' ? 'upload' : 'input', locator: step.locator });
+    if (step.locator?.value) refs.push({ path: `operation.setupSteps[${index}].locator`, kind: kindForStep(step), locator: step.locator });
+  }
+  for (const [index, step] of (plan.operation?.steps || []).entries()) {
+    if (step.locator?.value) refs.push({ path: `operation.steps[${index}].locator`, kind: kindForStep(step), locator: step.locator });
   }
   for (const [index, signal] of (plan.operation?.waitSignals || []).entries()) {
-    if (signal.locator?.value) refs.push({ path: `operation.waitSignals[${index}].locator`, kind: 'output', locator: signal.locator });
+    if (signal.locator?.value) refs.push({ path: `operation.waitSignals[${index}].locator`, kind: 'waitSignal', locator: signal.locator });
   }
   for (const [index, extractor] of (plan.operation?.extractors || []).entries()) {
     if (extractor.locator?.value) refs.push({ path: `operation.extractors[${index}].locator`, kind: extractor.type === 'image' ? 'output' : 'output', locator: extractor.locator });
